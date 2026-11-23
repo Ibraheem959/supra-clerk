@@ -4,35 +4,33 @@ import { formatSupra } from "../chain.js";
 export async function researchProject(chain, input) {
   const address = normalizeAddress(String(input).trim().split(/\s+/)[0]);
   const account = await chain.account(address);
-  const modules = await chain.modules(address);
+  const modules = account ? await chain.modules(address) : [];
   const balance = await chain.supraBalance(address);
   const names = modules.map((item) => (typeof item === "string" ? item : item.abi?.name || item.name)).filter(Boolean);
-  const claims = [
-    {
-      label: account ? "VERIFIED ON-CHAIN" : "DATA",
-      claim: account ? `This account has sent ${account.sequence_number} transactions.` : "This account was not found.",
-      evidence: address,
-    },
-    {
-      label: "VERIFIED ON-CHAIN",
-      claim: names.length ? `Contracts published here: ${names.join(", ")}.` : "No contracts were found on this account.",
-      evidence: "Published contracts",
-    },
-    {
-      label: balance === null ? "DATA" : "VERIFIED ON-CHAIN",
-      claim: balance === null ? "No SUPRA balance was found." : `SUPRA balance is ${formatSupra(balance)}.`,
-      evidence: "SUPRA balance",
-    },
-    {
-      label: "DATA",
-      claim: "Prices and social links are not included. This is not a valuation.",
-      evidence: "Those were not looked up.",
-    },
-  ];
+  const summary = !account ? "Account not found" : names.length ? names.slice(0, 4).join(", ") : "No contracts published";
   return {
-    title: "Project Research",
+    title: "Project",
     subject: address,
-    claims,
-    unavailable: ["How many people hold it was not counted.", "No market price was added."],
+    summary,
+    holdings: balance === null ? [] : [{ name: "SUPRA", amount: formatSupra(balance).replace(" SUPRA", "") }],
+    lines: names.slice(0, 8).map((name) => ({ title: name, detail: "Published on this account" })),
+    claims: [
+      {
+        label: account ? "VERIFIED ON-CHAIN" : "DATA",
+        claim: account ? `This account has sent ${account.sequence_number} transactions.` : "This account was not found.",
+        evidence: "",
+      },
+      {
+        label: "VERIFIED ON-CHAIN",
+        claim: names.length ? `Contracts published here: ${names.join(", ")}.` : "No contracts were found on this account.",
+        evidence: "",
+      },
+      {
+        label: balance === null ? "DATA" : "VERIFIED ON-CHAIN",
+        claim: balance === null ? "No SUPRA balance was found." : `SUPRA balance is ${formatSupra(balance)}.`,
+        evidence: "",
+      },
+    ],
+    unavailable: [],
   };
 }

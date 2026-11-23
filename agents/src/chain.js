@@ -17,7 +17,12 @@ export function chainIdFor(network = process.env.SUPRA_NETWORK || "mainnet") {
 async function readJson(url) {
   const response = await fetch(url, { headers: { "user-agent": "clerk/1.0", accept: "application/json" } });
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`Supra RPC ${response.status} for ${url}`);
+  if (response.status === 400) {
+    const text = await response.text();
+    if (/not found|Resource not found|Information not available/i.test(text)) return null;
+    throw new Error("The network rejected that request.");
+  }
+  if (!response.ok) throw new Error("The network did not answer. Try again.");
   return response.json();
 }
 

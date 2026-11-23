@@ -29,17 +29,27 @@ export async function clerkBalance(chain, market, user) {
 
 export async function verifyHire(chain, market, hash, input) {
   const tx = await chain.transaction(hash);
-  if (!tx || tx.status !== "Success") throw new Error("hire transaction was not successful");
+  if (!tx || tx.status !== "Success") throw new Error("The payment has not been accepted yet.");
   const expected = `${normalizeAddress(market)}::market::hire`;
-  if (functionOf(tx) !== expected) throw new Error("transaction is not clerk::market::hire");
+  if (functionOf(tx) !== expected) throw new Error("That was not an agent payment.");
   const inputHash = createHash("sha256").update(String(input)).digest("hex");
   const args = tx.payload?.Move?.arguments || [];
   const argHash = String(args[1] || "").replace(/^0x/, "");
-  if (argHash !== inputHash) throw new Error("input does not match the transaction");
+  if (argHash !== inputHash) throw new Error("The request does not match what was paid for.");
   const sender = normalizeAddress(senderOf(tx));
   const desk = await readDesk(chain, market);
-  const job = desk.jobs.find((item) => item.inputHash === inputHash && item.user === sender);
-  if (!job) throw new Error("no escrowed job matches that hire");
+  const events = tx.output?.Move?.events || [];
+  const hired = [...events].reverse().find((event) => String(event.type || "").endsWith("::Hired"));
+  const jobId = Number(hired?.data?.job_id);
+  let job = Number.isFinite(jobId) ? desk.jobs.find((item) => item.id === jobId) : null;
+  if (!job) {
+    const agentArg = Number(args[0]);
+    job = desk.jobs
+      .filter((item) => item.inputHash === inputHash && item.user === sender && item.agentId === agentArg)
+      .sort((left, right) => right.id - left.id)[0];
+  }
+  if (!job) throw new Error("The payment is not on the desk yet. Open it from Jobs in a moment.");
+  if (job.inputHash !== inputHash || job.user !== sender) throw new Error("The request does not match what was paid for.");
   return { txHash: hash, sender, job, agent: desk.agents.find((item) => item.id === job.agentId) };
 }
 

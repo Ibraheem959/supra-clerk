@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { createHash, randomBytes } from "node:crypto";
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createChain, supraRpc, chainIdFor } from "./chain.js";
@@ -11,7 +11,7 @@ import { researchProject } from "./agents/research.js";
 import { reviewContract } from "./agents/risk.js";
 import { writeContent } from "./agents/content.js";
 import { scanWallet } from "./agents/cleaner.js";
-import { discoveredVenues, tradePreview } from "./agents/trader.js";
+import { discoveredVenues, parseIntent, tradePreview } from "./agents/trader.js";
 import { readPortfolio } from "./agents/portfolio.js";
 import { prepareCall } from "./tx.js";
 import { normalizeAddress } from "./address.js";
@@ -19,6 +19,21 @@ import { normalizeAddress } from "./address.js";
 const webRoot = resolve(fileURLToPath(new URL("../../frontend/dist/", import.meta.url)));
 const ledger = createLedger(() => Math.floor(Date.now() / 1000));
 const results = new Map();
+const storePath = resolve(fileURLToPath(new URL("../data/results.json", import.meta.url)));
+try {
+  const saved = JSON.parse(readFileSync(storePath, "utf8"));
+  for (const [id, value] of Object.entries(saved)) results.set(Number(id), value);
+} catch { /* a fresh desk has no saved results */ }
+
+function remember(id, value) {
+  results.set(id, value);
+  try {
+    mkdirSync(resolve(storePath, ".."), { recursive: true });
+    const saved = {};
+    for (const [key, row] of results) saved[key] = row;
+    writeFileSync(storePath, JSON.stringify(saved));
+  } catch { /* the result is still in memory for this process */ }
+}
 const reportChain = createChain(supraRpc(process.env.SUPRA_NETWORK || "mainnet"));
 const deskChain = createChain("https://rpc-testnet.supra.com");
 const market = marketAddress();
@@ -65,18 +80,27 @@ function publicJob(job) {
 }
 
 async function runAgent(agent, input, prior) {
-  if (agent.name === "Wallet Detective") return investigateWallet(reportChain, input);
-  if (agent.name === "Project Research") return researchProject(reportChain, input);
-  if (agent.name === "Contract Risk") return reviewContract(reportChain, input);
-  if (agent.name === "Content") return writeContent(prior);
-  if (agent.name === "Wallet Cleaner") return scanWallet(reportChain, input, []);
-  if (agent.name === "Trading") return tradePreview({ pay: input, receive: "token", slippageBps: 100, quotes: discoveredVenues() });
-  if (agent.name === "Portfolio") return readPortfolio(reportChain, input);
+  const chain = market ? deskChain : reportChain;
+  if (agent.name === "Wallet Detective") return investigateWallet(chain, input);
+  if (agent.name === "Project Research") return researchProject(chain, input);
+  if (agent.name === "Contract Risk") return reviewContract(chain, input);
+  if (agent.name === "Content") {
+    const text = String(input || "");
+    const found = text.match(/0x[0-9a-fA-F]{1,64}/);
+    const source = found ? await investigateWallet(chain, found[0]) : prior;
+    return writeContent(source);
+  }
+  if (agent.name === "Wallet Cleaner") return scanWallet(chain, input, []);
+  if (agent.name === "Trading") {
+    const intent = parseIntent(input);
+    return tradePreview({ ...intent, slippageBps: 100, quotes: discoveredVenues() });
+  }
+  if (agent.name === "Portfolio") return readPortfolio(chain, input);
   return {
     title: agent.name,
-    subject: "custom",
-    claims: [{ label: "DATA", claim: "This registered agent has no executor in this process.", evidence: agent.permissions }],
-    unavailable: ["A third-party endpoint was not called. Clerk does not run arbitrary URLs."],
+    summary: "This agent has no reader yet",
+    claims: [{ label: "DATA", claim: "This registered agent has no executor in this process.", evidence: "" }],
+    unavailable: [],
   };
 }
 
@@ -95,7 +119,7 @@ async function handle(req, res) {
         network: market ? "testnet" : (process.env.SUPRA_NETWORK || "mainnet"),
         chainId: market ? 6 : chainIdFor(process.env.SUPRA_NETWORK || "mainnet"),
         rpc: market ? deskChain.rpc : reportChain.rpc,
-        reports: reportChain.rpc,
+        reports: market ? deskChain.rpc : reportChain.rpc,
         market,
         explorer: market ? `https://testnet.suprascan.io/address/${market}` : "",
         note: market
@@ -171,23 +195,43 @@ async function handle(req, res) {
       const created = ledger.hire(user, Number(body.agentId), hashText(input));
       const secret = randomBytes(16).toString("hex");
       results.set(created.id, { secret, input, report: null });
+      remember(created.id, { secret, input, report: null });
       return send(res, 201, { ...publicJob(created), secret, mode: "memory" });
     }
     if (req.method === "POST" && url.pathname === "/api/jobs/verify") {
       if (!market) return send(res, 400, { error: "chain mode is off" });
       const body = await jsonBody(req);
       const checked = await verifyHire(deskChain, market, body.hash, body.input);
-      if (!checked.agent) return send(res, 404, { error: "agent missing on chain" });
+      if (!checked.agent) return send(res, 404, { error: "That agent is not on the desk." });
       if (checked.job.status !== "FUNDED" && checked.job.status !== "COMPLETED") {
-        return send(res, 409, { error: "job is not funded" });
+        return send(res, 409, { error: "This payment is not open." });
       }
-      const report = await runAgent(checked.agent, body.input);
-      results.set(checked.job.id, { report, input: body.input });
-      return send(res, 200, {
-        job: publicJob(checked.job),
-        report,
-        settlement: "The report is ready. CLERK stays in escrow until the agent creator submits complete.",
-      });
+      let report;
+      try {
+        report = await runAgent(checked.agent, body.input);
+      } catch {
+        report = {
+          title: checked.agent.name,
+          summary: "The network did not return this",
+          claims: [{ label: "DATA", claim: "Nothing was invented. Try opening the result again from Jobs.", evidence: "" }],
+        };
+      }
+      remember(checked.job.id, { report, input: body.input });
+      return send(res, 200, { job: publicJob(checked.job), report });
+    }
+    if (req.method === "POST" && url.pathname === "/api/jobs/open") {
+      if (!market) return send(res, 400, { error: "Chain mode is off." });
+      const body = await jsonBody(req);
+      const id = Number(body.id);
+      const input = String(body.input ?? "");
+      const row = (await readDesk(deskChain, market)).jobs.find((item) => item.id === id);
+      if (!row) return send(res, 404, { error: "That job was not found." });
+      if (row.inputHash !== hashText(input)) return send(res, 400, { error: "That is not the request that was paid for." });
+      const agent = (await readDesk(deskChain, market)).agents.find((item) => item.id === row.agentId);
+      if (!agent) return send(res, 404, { error: "That agent is not on the desk." });
+      const report = await runAgent(agent, input);
+      remember(id, { report, input });
+      return send(res, 200, { job: publicJob(row), report });
     }
     const jobRun = url.pathname.match(/^\/api\/jobs\/(\d+)\/run$/);
     if (req.method === "POST" && jobRun) {

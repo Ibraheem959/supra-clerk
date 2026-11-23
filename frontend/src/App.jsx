@@ -46,7 +46,9 @@ function jobLabel(status) {
 }
 
 function placeholder(type) {
-  if (type === "package-module") return "Contract, for example 0xabc…::market";
+  if (type === "package-module") return "A contract address, or address::module";
+  if (type === "trade-intent") return "For example, 10 SUPRA for CLERK";
+  if (type === "report") return "A wallet address to write from";
   if (type === "supra-address") return "Wallet address, starting with 0x";
   return "Tell the agent what to look at";
 }
@@ -98,7 +100,7 @@ async function askWallet(prepared) {
 }
 
 async function waitFor(hash) {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
     const row = await api("/api/tx/status", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -124,7 +126,7 @@ export function App() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [balance, setBalance] = useState("");
-  const [gas, setGas] = useState(null);
+  const [again, setAgain] = useState("");
 
   async function refresh(next = address) {
     if (!next) return;
@@ -284,9 +286,28 @@ export function App() {
         ) : null}
         {page === "job" && openJob?.report ? <Report report={openJob.report} job={openJob.job} hash={openJob.hash} /> : null}
         {page === "job" && openJob && !openJob.report ? (
-          <section className="panel">
-            <h1>Job {openJob.job?.id}</h1>
-            <p>This payment is on testnet. Run the agent again if you want a fresh result.</p>
+          <section className="panel hire">
+            <h1>{agents.find((item) => item.id === openJob.job?.agentId)?.name || "Paid job"}</h1>
+            <p>This payment is saved. Enter the same request to open the result. It does not charge again.</p>
+            <label>The request you paid for
+              <textarea rows={3} value={again} onChange={(event) => setAgain(event.target.value)} />
+            </label>
+            <button className="pay" type="button" disabled={busy} onClick={async () => {
+              setError("");
+              setBusy(true);
+              try {
+                const body = await api("/api/jobs/open", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ id: openJob.job.id, input: again }),
+                });
+                setOpenJob(body);
+              } catch (reason) {
+                setError(reason.message);
+              } finally {
+                setBusy(false);
+              }
+            }}>{busy ? "Opening" : "Open the result"}</button>
           </section>
         ) : null}
         {page === "trade" ? <Trade /> : null}
@@ -358,7 +379,7 @@ function Home({ connected, onBrowse, onConnect }) {
 }
 
 function Report({ report }) {
-  const rows = Array.isArray(report.history) ? report.history : [];
+  const rows = Array.isArray(report.history) && report.history.length ? report.history : (report.lines || []);
   const holdings = Array.isArray(report.holdings) ? report.holdings : [];
   return (
     <section className="report">
@@ -370,7 +391,7 @@ function Report({ report }) {
       {holdings.length ? (
         <div className="balances">
           {holdings.map((item) => (
-            <div className="stat" key={item.name}>
+            <div className="stat" key={`${item.name}-${item.amount}`}>
               <strong>{item.amount}</strong>
               <span>{item.name}</span>
             </div>
@@ -381,7 +402,7 @@ function Report({ report }) {
         <ol className="timeline">
           {rows.map((row, index) => (
             <li key={index}>
-              <time>{row.when || "Recent"}</time>
+              <time>{row.when || "Result"}</time>
               <strong>{row.title}</strong>
               <span>{row.detail || ""}</span>
             </li>
@@ -389,13 +410,10 @@ function Report({ report }) {
         </ol>
       ) : (
         <div className="stack">
-          {(report.claims || []).slice(0, 4).map((claim, index) => (
-            <p key={index}>{claim.claim}</p>
-          ))}
+          {(report.claims || []).slice(0, 4).map((claim, index) => <p key={index}>{claim.claim}</p>)}
         </div>
       )}
       {report.watch ? <p className="note">{report.watch}</p> : null}
-      {(report.unavailable || []).slice(0, 1).map((line) => <p className="muted" key={line}>{line}</p>)}
     </section>
   );
 }

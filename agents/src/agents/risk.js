@@ -18,8 +18,8 @@ export function reviewAbi(moduleName, abi) {
     if (!flag) continue;
     hits.push({
       label: "RISK SIGNAL",
-      claim: `Public entry ${moduleName}::${fn.name} matches a ${flag.name} name. Parameters: ${(fn.params || []).join(", ") || "none"}.`,
-      evidence: "Public function",
+      claim: `${moduleName} can ${flag.name} (${fn.name}).`,
+      evidence: "",
     });
   }
   return hits;
@@ -29,41 +29,56 @@ export async function reviewContract(chain, input) {
   const text = String(input).trim();
   const [rawAddress, moduleName] = text.includes("::") ? text.split("::") : [text, ""];
   const address = normalizeAddress(rawAddress);
-  if (!moduleName || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(moduleName)) {
+  const named = moduleName && /^[A-Za-z_][A-Za-z0-9_]*$/.test(moduleName);
+  const targets = [];
+  if (named) targets.push(moduleName);
+  else if (chain.modules) {
+    const published = await chain.modules(address);
+    for (const item of published) {
+      const name = typeof item === "string" ? item : item.abi?.name || item.name;
+      if (name) targets.push(name);
+    }
+  }
+  if (!targets.length) {
     return {
-      title: "Contract Risk",
+      title: "Contract check",
       subject: address,
+      summary: named ? "Contract not found" : "No contracts on this account",
       claims: [{
         label: "DATA",
-        claim: "Provide an address and a module name, like 0xabc::market.",
-        evidence: "No contract was read.",
+        claim: named
+          ? "The node did not return an ABI for that module. No privileges were inferred."
+          : "No contracts were found on this account.",
+        evidence: "",
       }],
-      unavailable: ["The contract code was not opened line by line."],
+      unavailable: [],
     };
   }
-  const published = await chain.module(address, moduleName);
-  if (!published?.abi) {
-    return {
-      title: "Contract Risk",
-      subject: `${address}::${moduleName}`,
-      claims: [{
+  const claims = [];
+  for (const name of targets.slice(0, 4)) {
+    const published = await chain.module(address, name);
+    if (!published?.abi) {
+      claims.push({
         label: "DATA",
         claim: "The node did not return an ABI for that module. No privileges were inferred.",
-        evidence: address,
-      }],
-      unavailable: ["Unpublished or renamed modules cannot be reviewed from this call."],
-    };
+        evidence: "",
+      });
+      continue;
+    }
+    const hits = reviewAbi(name, published.abi);
+    if (hits.length) claims.push(...hits);
+    else claims.push({
+      label: "VERIFIED ON-CHAIN",
+      claim: `${name} was read. None of the watched actions, such as mint or upgrade, are public.`,
+      evidence: "",
+    });
   }
-  const hits = reviewAbi(moduleName, published.abi);
-  const claims = hits.length ? hits : [{
-    label: "VERIFIED ON-CHAIN",
-    claim: `${moduleName} was read. None of the watched actions, such as mint or upgrade, are public.`,
-    evidence: "Names only. This is not a safety certificate.",
-  }];
-  claims.push({
-    label: "DATA",
-    claim: "A matching name is a hint, not proof that funds can be taken.",
-    evidence: "The contract was not taken apart beyond its public functions.",
-  });
-  return { title: "Contract Risk", subject: `${address}::${moduleName}`, claims, unavailable: ["Only the public functions were read."] };
+  return {
+    title: "Contract check",
+    subject: named ? `${address}::${moduleName}` : address,
+    summary: claims.some((item) => item.label === "RISK SIGNAL") ? "Something needs a look" : "Nothing unusual in the public actions",
+    lines: claims.slice(0, 6).map((item) => ({ title: item.claim, detail: "" })),
+    claims,
+    unavailable: [],
+  };
 }
