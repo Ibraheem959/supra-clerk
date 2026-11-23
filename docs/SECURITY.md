@@ -2,7 +2,11 @@
 
 ## Payment
 
-The Move module, not the browser, is the rule once it is published.
+The Move module on testnet is the paid path.
+
+The memory ledger remains for unit tests. `POST /api/jobs` in chain mode returns the entry to sign. It does not escrow. `POST /api/jobs/verify` accepts a hire only when the transaction succeeded, the function is `clerk::market::hire` on this package, and the argument is the sha256 of the input. A second `complete` aborts with `E_STATUS`. That abort was observed on testnet for job 1.
+
+The testnet publisher key is not in the repository. The mainnet wallet was not used for these transactions.
 
 - `hire` withdraws the agent's price. The caller does not choose a smaller amount.
 - `complete` and `fail` require the agent creator. A second call sees a status other than FUNDED and aborts.

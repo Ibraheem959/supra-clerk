@@ -4,7 +4,7 @@ A desk where someone pays an agent to do a job on Supra.
 
 The token is CLERK. It pays for the job. It is not staked, and it does not promise a yield.
 
-The copy you can run today reads Supra mainnet for real account, resource, transaction, and module data. The escrow you click through in the browser is a local ledger with the same rules as the Move module. The module is in `contracts/` and has not been published. The banner in the app says so.
+The copy you can run reads Supra for account, resource, transaction, and module data. Job escrow is the Move module published on Supra testnet. See `docs/DEPLOYMENT.md`. A local ledger still exists behind `CLERK_LEDGER=memory` for tests. It is not the paid path.
 
 ## Why Supra
 
@@ -14,14 +14,15 @@ Reports call the SupraMVM REST API (chain id 8 on mainnet). The wallet is StarKe
 
 ```
 StarKey
-  → clerk::market::hire          (when the module is published)
-  → job FUNDED, CLERK in escrow
+  → clerk::market::hire on testnet
+  → job FUNDED, CLERK held by the module
 Desk
-  → reads Supra RPC
-  → writes a report with evidence labels
-  → agent creator complete / fail
+  → verifies the hire transaction
+  → reads Supra RPC for the report
+Agent creator
+  → clerk::market::complete
 User
-  → result, then one rating
+  → one rating, after the job is COMPLETED
 ```
 
 Large reports stay off-chain. The module stores a 32-byte hash.
@@ -49,13 +50,11 @@ npm --prefix frontend install
 npm run dev:web
 ```
 
-Open the Vite URL. Connect StarKey if it is installed. Without it, the desk still explains that the wallet is missing.
+Open the Vite URL. Connect StarKey if it is installed. Without it, the desk still explains that the wallet is missing. In chain mode the hire button shows the entry to sign. It does not mark the job paid.
 
-`npm test` includes one read of mainnet, so it needs the network.
+`npm test` reads mainnet and the testnet market, so it needs the network.
 
-## Contracts
-
-`clerk::market` holds agents, jobs, and the CLERK escrow. Statuses are FUNDED, COMPLETED, FAILED, and REFUNDED. See `docs/DEPLOYMENT.md`. Nothing in this repository is a mainnet or testnet deployment.
+`clerk::market` is on Supra testnet at `0xf41a860dbbdba930321379a9b3cd15c05df971f6830158f9e06b2c44b5ae1f8b`. Statuses are FUNDED, COMPLETED, FAILED, and REFUNDED. Mainnet is not claimed.
 
 ## Security
 

@@ -9,6 +9,11 @@ Verified against official docs last updated 17 November 2026.
 | Devnet | Chain id 50, `https://rpc-devnet.supra.com` | Not the default |
 | SupraEVM | Devnet only, chain id 535600 | Not used. The market is a Move module |
 | REST | `/rpc/v3/accounts/{address}`, `/resources`, `/resources/{type}`, `/transactions`, `/modules/{name}`, `/rpc/v3/transactions/{hash}` | `agents/src/chain.js` |
+| Market | Testnet package `0xf41a860dbbdba930321379a9b3cd15c05df971f6830158f9e06b2c44b5ae1f8b::market` | Escrow, agents, jobs. Verified by reading `Registry` after the calls in `docs/DEPLOYMENT.md` |
+| Automation | `settle_expired` is deployed and callable. It was not registered | A block-end task would pay gas to return until a job is due |
+| dVRF | Documented. Not used | Payments do not need randomness |
+| SupraNova | Testnet bridge exists. Not used | No agent moves assets across chains |
+| DEX | Atmos, Dexlyn, WARs were not pinned from official sources or from the blocks that were read | `docs/DEX-INTEGRATIONS.md` |
 | OpenAPI | `https://rpc-mainnet.supra.com/docs/api.json` | Paths confirmed before coding |
 | SDK | `supra-ts-sdk`, dist-tags `mainnet` / `testnet` / `devnet` | Not bundled. StarKey signing follows the dapp guide when a market address exists |
 | StarKey | `window.starkey.supra.connect`, `.account`, `.changeNetwork({chainId})`, `.sendTransaction` | `frontend/src/App.jsx` |
@@ -22,9 +27,9 @@ Verified against official docs last updated 17 November 2026.
 
 ## What is actually called
 
-- Account, resources, SUPRA coin store, transaction page, and module ABI are read from the RPC above.
-- The Move module `clerk::market` is the payment and reputation contract. It is in `contracts/` and is not published.
-- StarKey is the wallet. The running desk does not submit a market transaction because there is no published address.
+- Account, resources, SUPRA coin store, transaction page, and module ABI are read from the RPC.
+- `clerk::market` on testnet holds the escrow. The desk verifies a hire transaction before it writes a report. It does not settle the job itself.
+- StarKey is the signer. The browser is not given a key.
 
 ## What was not invented
 
