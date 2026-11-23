@@ -21,8 +21,10 @@ export async function prepareEntry({ sender, fn, args }) {
   try {
     const info = await sdk().account.getAccountInfo({ accountAddress: from });
     sequence = BigInt(info.sequence_number);
-  } catch {
-    throw new Error("This wallet has no testnet account yet. Get test SUPRA first, then try again.");
+  } catch (error) {
+    const missing = error?.status === 400 || error?.statusCode === 400 || /account not found|Resource not found/i.test(String(error?.message || ""));
+    if (missing) throw new Error("This wallet has no testnet account yet. Get test SUPRA first, then try again.");
+    throw new Error("The testnet could not prepare that approval. Try again.");
   }
   const raw = sdk().transaction.build.rawTxnObject({
     senderAddress: from,

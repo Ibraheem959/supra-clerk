@@ -14,6 +14,7 @@ import { scanWallet } from "./agents/cleaner.js";
 import { discoveredVenues, tradePreview } from "./agents/trader.js";
 import { readPortfolio } from "./agents/portfolio.js";
 import { prepareCall } from "./tx.js";
+import { normalizeAddress } from "./address.js";
 
 const webRoot = resolve(fileURLToPath(new URL("../../frontend/dist/", import.meta.url)));
 const ledger = createLedger(() => Math.floor(Date.now() / 1000));
@@ -244,7 +245,9 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && url.pathname.startsWith("/api/balance/")) {
       const user = normalizeAddress(decodeURIComponent(url.pathname.split("/").pop()));
-      const supra = await reportChain.supraBalance(user).catch(() => null);
+      const supra = market
+        ? await deskChain.supraBalance(user).catch(() => null)
+        : await reportChain.supraBalance(user).catch(() => null);
       const clerk = market ? (await clerkBalance(deskChain, market, user)).toString() : ledger.balance(user).toString();
       return send(res, 200, { balance: clerk, supra: supra?.toString() ?? null, mode: market ? "chain" : "memory" });
     }
