@@ -1,0 +1,65 @@
+:root {
+  color-scheme: dark;
+  --ink: #e7dfd2;
+  --muted: #a39888;
+  --paper: #1c1814;
+  --panel: #26211b;
+  --line: #3a332b;
+  --brass: #c9863a;
+  --good: #d7e2c8;
+  --risk: #e2b4a8;
+  --data: #c9d4df;
+  font-family: "Iowan Old Style", Palatino, Georgia, serif;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: inherit; }
+
+.shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+.top {
+  display: flex; justify-content: space-between; gap: 16px; align-items: center;
+  padding: 16px 20px; border-bottom: 1px solid var(--line); position: sticky; top: 0;
+  background: rgba(28, 24, 20, .94); z-index: 2;
+}
+.brand { display: grid; gap: 2px; }
+.brand strong { letter-spacing: .14em; font-size: 14px; }
+.brand span, .muted { color: var(--muted); font-family: ui-sans-serif, system-ui, sans-serif; font-size: 12px; }
+.nav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.nav button, .ghost {
+  background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px;
+  font-family: ui-sans-serif, system-ui, sans-serif; font-size: 13px;
+}
+.nav button[aria-current="page"] { border-color: var(--brass); color: var(--brass); }
+.main { width: min(1100px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 64px; display: grid; gap: 18px; }
+h1 { font-size: clamp(40px, 6vw, 72px); line-height: .95; margin: 0; font-weight: 500; }
+h2 { margin: 0; font-weight: 500; }
+.lede { max-width: 46rem; font-size: 18px; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.card, .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 16px; display: grid; gap: 8px; }
+.card button, .pay {
+  background: var(--brass); color: #1c1208; border: 0; border-radius: 999px; padding: 10px 14px;
+  font-family: ui-sans-serif, system-ui, sans-serif; font-weight: 700;
+}
+.price { font-variant-numeric: tabular-nums; }
+.banner { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 13px; }
+label { display: grid; gap: 6px; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 13px; }
+textarea, input { width: 100%; background: #14110e; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.claims { display: grid; gap: 10px; }
+.claim { border-left: 3px solid var(--line); padding: 8px 12px; }
+.claim[data-label="VERIFIED ON-CHAIN"] { border-color: var(--good); }
+.claim[data-label="RISK SIGNAL"] { border-color: var(--risk); }
+.claim[data-label="DATA"] { border-color: var(--data); }
+.claim small { display: block; color: var(--brass); font-family: ui-sans-serif, system-ui, sans-serif; letter-spacing: .08em; }
+.claim p, .claim pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; }
+.jobs { display: grid; gap: 8px; }
+.error { color: var(--risk); font-family: ui-sans-serif, system-ui, sans-serif; }
+
+@media (max-width: 720px) {
+  .grid { grid-template-columns: 1fr; }
+  .top { align-items: flex-start; flex-direction: column; }
+  .main { width: min(100% - 24px, 1100px); }
+  h1 { font-size: 40px; }
+}
