@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test agents/test/*.test.js",
-    "start": "node agents/src/server.js",
+    "build": "npm --prefix frontend ci --include=dev && npm --prefix frontend run build",
+    "start": "node scripts/ensure-web.mjs && node agents/src/server.js",
     "dev:web": "npm --prefix frontend run dev",
     "build:web": "npm --prefix frontend run build"
   }

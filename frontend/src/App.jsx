@@ -126,7 +126,7 @@ export function App() {
     <div className="shell">
       <header className="top">
         <div className="brand">
-          <strong>CLERK</strong>
+          <strong>CLERK TESTNET</strong>
           <span>Pay the agent. Get the job done.</span>
         </div>
         <nav className="nav">
@@ -142,7 +142,7 @@ export function App() {
         {health ? (
           <p className="banner">
             {health.mode === "chain"
-              ? `On-chain escrow. Supra testnet, chain id ${health.chainId}. Market ${health.market}. Reports still read ${health.reports}.`
+              ? `CLERK TESTNET. SupraMVM testnet, chain id ${health.chainId}. Market ${health.market}.`
               : health.note}
           </p>
         ) : null}
@@ -168,11 +168,12 @@ export function App() {
             <span className="muted">{picked.permissions}</span>
             <h1>{picked.name}</h1>
             <p>{picked.description}</p>
-            <p className="price">{clerk(picked.price)} leaves the local balance when you hire. A published market would escrow this in the Move module instead.</p>
+            <p className="price">{health?.mode === "chain" ? `${clerk(picked.price)} is escrowed by clerk::market::hire after StarKey signs. This page does not mark it paid.` : `${clerk(picked.price)} leaves the local balance when you hire.`}</p>
             <label>Input
               <textarea rows={5} value={input} onChange={(event) => setInput(event.target.value)} placeholder={picked.inputType === "package-module" ? "0xaddress::module" : "0x wallet address"} />
             </label>
-            <button className="pay" type="button" disabled={busy} onClick={() => void hire(picked)}>{busy ? "Working" : "Pay and run"}</button>
+            <button className="pay" type="button" disabled={busy} onClick={() => void hire(picked)}>{busy ? "Working" : health?.mode === "chain" ? "Prepare hire" : "Pay and run"}</button>
+            {health?.mode === "chain" ? <Verify input={input} onDone={(body) => { setOpenJob(body); setPage("job"); }} /> : null}
           </section>
         ) : null}
         {page === "jobs" ? (
@@ -193,10 +194,39 @@ export function App() {
           </section>
         ) : null}
         {page === "job" && openJob?.report ? <Report report={openJob.report} job={openJob.job} /> : null}
+        {page === "job" && openJob && !openJob.report ? (
+          <section className="panel">
+            <h1>Job {openJob.job?.id}</h1>
+            <p>{openJob.job?.status}. No report is stored for this job in this process. Verify the hire transaction again to run the agent.</p>
+          </section>
+        ) : null}
         {page === "trade" ? <Trade /> : null}
         {page === "wallet" ? <Wallet address={address} balance={balance} health={health} /> : null}
       </main>
     </div>
+  );
+}
+
+function Verify({ input, onDone }) {
+  const [hash, setHash] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <section className="panel">
+      <h2>Verify the hire</h2>
+      <p className="muted">After StarKey submits clerk::market::hire, paste the transaction hash. The agent runs only if that testnet transaction matches this input.</p>
+      <label>Transaction hash
+        <input value={hash} onChange={(event) => setHash(event.target.value)} placeholder="0x…" />
+      </label>
+      {error ? <p className="error">{error}</p> : null}
+      <button className="pay" type="button" disabled={busy} onClick={async () => {
+        setBusy(true);
+        setError("");
+        try { onDone(await api("/api/jobs/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hash, input }) })); }
+        catch (reason) { setError(reason.message); }
+        finally { setBusy(false); }
+      }}>{busy ? "Checking" : "Verify on testnet"}</button>
+    </section>
   );
 }
 
@@ -235,7 +265,7 @@ function Trade() {
   return (
     <section className="panel">
       <h1>Trading</h1>
-      <p>Atmos, Dexlyn, and WARs are asked only when an official quote is pinned. None is pinned, so this preview will not invent a price or a transaction.</p>
+      <p>This does not send a swap. Compare venues prints only what was actually checked.</p>
       <label>Pay<input value={pay} onChange={(event) => setPay(event.target.value)} /></label>
       <label>Receive<input value={receive} onChange={(event) => setReceive(event.target.value)} /></label>
       <button className="pay" type="button" onClick={async () => {
@@ -255,7 +285,7 @@ function Wallet({ address, balance, health }) {
     <section className="panel">
       <h1>Wallet</h1>
       <p>{address || "StarKey is not connected."}</p>
-      <p className="price">{balance ? clerk(balance) : "—"} on the local ledger</p>
+      <p className="price">{balance ? clerk(balance) : "—"} {health?.mode === "chain" ? "CLERK on testnet" : "on the local ledger"}</p>
       <p className="muted">Network {health?.network}. Market address {health?.market || "not published"}.</p>
     </section>
   );

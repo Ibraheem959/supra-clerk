@@ -1,5 +1,8 @@
 import { createServer } from "node:http";
 import { createHash, randomBytes } from "node:crypto";
+import { createReadStream, existsSync, statSync } from "node:fs";
+import { extname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createChain, supraRpc, chainIdFor } from "./chain.js";
 import { clerkBalance, marketAddress, readDesk, verifyHire } from "./market.js";
 import { createLedger } from "./rules.js";
@@ -12,6 +15,7 @@ import { discoveredVenues, tradePreview } from "./agents/trader.js";
 import { readPortfolio } from "./agents/portfolio.js";
 import { normalizeAddress } from "./address.js";
 
+const webRoot = resolve(fileURLToPath(new URL("../../frontend/dist/", import.meta.url)));
 const ledger = createLedger(() => Math.floor(Date.now() / 1000));
 const results = new Map();
 const reportChain = createChain(supraRpc(process.env.SUPRA_NETWORK || "mainnet"));
@@ -177,6 +181,11 @@ async function handle(req, res) {
     const jobRead = url.pathname.match(/^\/api\/jobs\/(\d+)$/);
     if (req.method === "GET" && jobRead) {
       const id = Number(jobRead[1]);
+      if (market) {
+        const row = (await readDesk(deskChain, market)).jobs.find((item) => item.id === id);
+        if (!row) return send(res, 404, { error: "invalid job" });
+        return send(res, 200, { job: publicJob(row), report: results.get(id)?.report ?? null });
+      }
       const row = ledger.jobs().find((item) => item.id === id);
       if (!row) return send(res, 404, { error: "invalid job" });
       const stored = results.get(id);
@@ -221,6 +230,7 @@ async function handle(req, res) {
       const body = await jsonBody(req);
       return send(res, 200, await scanWallet(reportChain, body.address, []));
     }
+    if (serveWeb(req, res, url.pathname)) return;
     return send(res, 404, { error: "not found" });
   } catch (error) {
     return send(res, 400, { error: error instanceof Error ? error.message : "rejected" });
@@ -240,8 +250,47 @@ function jsonBody(req) {
 }
 
 function send(res, status, body) {
-  res.writeHead(status, { "content-type": "application/json" });
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(body));
+}
+
+const FILE_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".txt": "text/plain; charset=utf-8",
+};
+
+function serveWeb(req, res, pathname) {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  if (pathname.startsWith("/api/")) return false;
+  if (!existsSync(join(webRoot, "index.html"))) return false;
+  let requested = pathname;
+  try { requested = decodeURIComponent(pathname); }
+  catch { return false; }
+  const candidate = resolve(webRoot, `.${requested}`);
+  const inside = candidate === webRoot || candidate.startsWith(webRoot + sep);
+  const file = inside && existsSync(candidate) && statSync(candidate).isFile()
+    ? candidate
+    : join(webRoot, "index.html");
+  const type = FILE_TYPES[extname(file)] || "application/octet-stream";
+  res.writeHead(200, {
+    "content-type": type,
+    "cache-control": extname(file) === ".html" ? "no-cache" : "public, max-age=3600",
+  });
+  if (req.method === "HEAD") {
+    res.end();
+    return true;
+  }
+  createReadStream(file).pipe(res);
+  return true;
 }
 
 export function start(port = Number(process.env.PORT || 8787)) {
