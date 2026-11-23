@@ -22,6 +22,9 @@ module clerk::market {
     const E_NAME: u64 = 8;
     const E_HASH: u64 = 9;
     const E_FEE: u64 = 10;
+    const E_FAUCET: u64 = 11;
+    const FAUCET_DRIP: u64 = 500_0000_0000;
+    const FAUCET_WAIT: u64 = 3600;
 
     struct CLERK has key {}
 
@@ -87,6 +90,10 @@ module clerk::market {
         active: bool,
     }
 
+    struct FaucetStamp has key {
+        next_secs: u64,
+    }
+
     struct Registry has key {
         agents: vector<Agent>,
         jobs: vector<Job>,
@@ -140,6 +147,23 @@ module clerk::market {
     public entry fun mint_to(admin: &signer, to: address, amount: u64) acquires Caps, Config {
         assert!(signer::address_of(admin) == borrow_global<Config>(@clerk).admin, E_ADMIN);
         coin::deposit(to, coin::mint<CLERK>(amount, &borrow_global<Caps>(@clerk).mint));
+    }
+
+    /// Testnet drip. 500 CLERK, once an hour, into the signer's own account.
+    public entry fun faucet(user: &signer) acquires Caps, FaucetStamp {
+        let addr = signer::address_of(user);
+        let now = timestamp::now_seconds();
+        if (exists<FaucetStamp>(addr)) {
+            let stamp = borrow_global_mut<FaucetStamp>(addr);
+            assert!(now >= stamp.next_secs, E_FAUCET);
+            stamp.next_secs = now + FAUCET_WAIT;
+        } else {
+            move_to(user, FaucetStamp { next_secs: now + FAUCET_WAIT });
+        };
+        if (!coin::is_account_registered<CLERK>(addr)) {
+            coin::register<CLERK>(user);
+        };
+        coin::deposit(addr, coin::mint<CLERK>(FAUCET_DRIP, &borrow_global<Caps>(@clerk).mint));
     }
 
     public entry fun set_fee_bps(admin: &signer, fee_bps: u64) acquires Config {
@@ -566,5 +590,22 @@ module clerk::market {
         register_agent(&publisher, b"Wallet Detective", b"reads", b"Research", 50_000_000_00, b"supra-address", b"READ ONLY");
         hire(&user, 1, hash32());
         refund(&user, 1);
+    }
+
+    #[test]
+    fun faucet_registers_and_drips() acquires Caps, FaucetStamp {
+        start(1_000);
+        let user = account::create_account_for_test(@0xB0B);
+        faucet(&user);
+        assert!(coin::balance<CLERK>(@0xB0B) == 500_0000_0000, 0);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 11, location = clerk::market)]
+    fun faucet_waits_an_hour() acquires Caps, FaucetStamp {
+        start(1_000);
+        let user = account::create_account_for_test(@0xB0B);
+        faucet(&user);
+        faucet(&user);
     }
 }

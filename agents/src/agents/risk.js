@@ -19,7 +19,7 @@ export function reviewAbi(moduleName, abi) {
     hits.push({
       label: "RISK SIGNAL",
       claim: `Public entry ${moduleName}::${fn.name} matches a ${flag.name} name. Parameters: ${(fn.params || []).join(", ") || "none"}.`,
-      evidence: `ABI exposed_functions.${fn.name} is_entry=${fn.is_entry}`,
+      evidence: "Public function",
     });
   }
   return hits;
@@ -36,9 +36,9 @@ export async function reviewContract(chain, input) {
       claims: [{
         label: "DATA",
         claim: "Provide an address and a module name, like 0xabc::market.",
-        evidence: "No module was fetched.",
+        evidence: "No contract was read.",
       }],
-      unavailable: ["Bytecode was not decompiled."],
+      unavailable: ["The contract code was not opened line by line."],
     };
   }
   const published = await chain.module(address, moduleName);
@@ -49,7 +49,7 @@ export async function reviewContract(chain, input) {
       claims: [{
         label: "DATA",
         claim: "The node did not return an ABI for that module. No privileges were inferred.",
-        evidence: `GET /rpc/v3/accounts/${address}/modules/${moduleName}`,
+        evidence: address,
       }],
       unavailable: ["Unpublished or renamed modules cannot be reviewed from this call."],
     };
@@ -57,13 +57,13 @@ export async function reviewContract(chain, input) {
   const hits = reviewAbi(moduleName, published.abi);
   const claims = hits.length ? hits : [{
     label: "VERIFIED ON-CHAIN",
-    claim: `The ABI for ${moduleName} has ${(published.abi.exposed_functions || []).length} exposed functions and none of the watched names are public entries.`,
-    evidence: "Name scan only. It is not a proof that the module is safe.",
+    claim: `${moduleName} was read. None of the watched actions, such as mint or upgrade, are public.`,
+    evidence: "Names only. This is not a safety certificate.",
   }];
   claims.push({
-    label: "AI ANALYSIS",
-    claim: "A matching name is a signal, not a finding that funds can be taken. Upgradeability is not proven unless an upgrade entry is in the ABI.",
-    evidence: "No decompiler was run.",
+    label: "DATA",
+    claim: "A matching name is a hint, not proof that funds can be taken.",
+    evidence: "The contract was not taken apart beyond its public functions.",
   });
-  return { title: "Contract Risk", subject: `${address}::${moduleName}`, claims, unavailable: ["Dependencies inside the bytecode were not walked."] };
+  return { title: "Contract Risk", subject: `${address}::${moduleName}`, claims, unavailable: ["Only the public functions were read."] };
 }

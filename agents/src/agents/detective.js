@@ -20,29 +20,29 @@ export async function investigateWallet(chain, input) {
   if (!account) {
     claims.push({
       label: "DATA",
-      claim: "The node did not return this account.",
-      evidence: `${chain.rpc}/rpc/v3/accounts/${address}`,
+      claim: "This account was not found.",
+      evidence: address,
     });
   } else {
     claims.push({
       label: "VERIFIED ON-CHAIN",
       claim: `Sequence number is ${account.sequence_number}.`,
-      evidence: `GET /rpc/v3/accounts/${address}`,
+      evidence: "Account activity count",
     });
   }
 
   claims.push({
     label: balance === null ? "DATA" : "VERIFIED ON-CHAIN",
     claim: balance === null
-      ? "No 0x1::supra_coin::SupraCoin CoinStore was returned. The balance is not invented."
-      : `SUPRA coin store balance is ${formatSupra(balance)}.`,
-    evidence: "GET resource 0x1::coin::CoinStore<0x1::supra_coin::SupraCoin>",
+      ? "No SUPRA balance was found. None was invented."
+      : `SUPRA balance is ${formatSupra(balance)}.`,
+    evidence: "SUPRA coin balance",
   });
 
   const types = resources.map((item) => item.type).filter(Boolean);
   claims.push({
     label: "VERIFIED ON-CHAIN",
-    claim: `${types.length} resources returned. The node sends the resource list in one response and rejected a second-page cursor, so this is the full list it gave, not a guessed total.`,
+    claim: `${types.length} items are stored on this account.`,
     evidence: types.slice(0, 12).join("\n") || "none",
   });
 
@@ -65,8 +65,8 @@ export async function investigateWallet(chain, input) {
   if (!txs.length) {
     claims.push({
       label: "DATA",
-      claim: "The account transaction feed returned no user transactions for this page.",
-      evidence: "GET /rpc/v3/accounts/{address}/transactions?count=25",
+      claim: "No transactions were found for this account.",
+      evidence: "Transaction history",
     });
   } else {
     const first = txs[txs.length - 1];
@@ -79,7 +79,10 @@ export async function investigateWallet(chain, input) {
     claims.push({
       label: "VERIFIED ON-CHAIN",
       claim: `${reach} Newest ${whenOf(last) || "time unavailable"}. Oldest fetched ${whenOf(first) || "time unavailable"}.`,
-      evidence: txs.slice(0, 8).map((tx) => `${tx.hash} ${functionOf(tx) || tx.txn_type}`).join("\n"),
+      evidence: txs.slice(0, 8).map((tx) => {
+        const name = (functionOf(tx) || tx.txn_type || "transaction").split("::").pop();
+        return `${String(tx.hash || "").slice(0, 10)}… ${name}`;
+      }).join("\n"),
     });
   }
 

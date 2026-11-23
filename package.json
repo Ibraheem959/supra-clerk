@@ -2,6 +2,9 @@
   "name": "supra-clerk",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "supra-ts-sdk": "^1.2.0"
+  },
   "scripts": {
     "test": "node --test agents/test/*.test.js",
     "build": "npm --prefix frontend ci --include=dev && npm --prefix frontend run build",

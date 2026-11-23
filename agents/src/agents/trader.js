@@ -25,7 +25,7 @@ export function compareQuotes(quotes) {
   if (!quoted.length) {
     return {
       best: null,
-      claim: "No supported venue returned a verified quote. Best price is not claimed.",
+      claim: "No price came back, so this will not pick a venue.",
     };
   }
   const best = quoted.reduce((left, right) => (right.output > left.output ? right : left));
@@ -52,15 +52,10 @@ export function tradePreview({ pay, receive, slippageBps = 100, quotes }) {
     claims: [
       {
         label: "DATA",
-        claim: comparison.claim,
-        evidence: (quotes || []).map((item) => `${item.venue}: ${item.status}${item.reason ? ` (${item.reason})` : ""}`).join("\n"),
-      },
-      {
-        label: "AI ANALYSIS",
-        claim: "No transaction was built.",
-        evidence: "executes=false",
+        claim: comparison.best ? comparison.claim : "No price came back, so nothing will be swapped.",
+        evidence: comparison.best ? comparison.claim : "Atmos, Dexlyn, and WARs were checked. None returned a price.",
       },
     ],
-    unavailable: ["A quote requires a replayed pool. None was replayed."],
+    unavailable: comparison.best ? [] : ["Nothing was traded."],
   };
 }

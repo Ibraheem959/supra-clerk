@@ -38,6 +38,10 @@ The mainnet development wallet was not used. Its address is on chain id 8 and it
 
 Job 2 is a Content hire with a 90 second review. Automation task 6474 targets `settle_expired` for that job. Registration `0x7d539248bfa6160847e11258d819ca5495a79d9804f1674b336d685fb914d367`. Execution was not observed. Details are in `docs/AUTOMATION.md`.
 
+## Testnet faucet
+
+`faucet` was added in a compatible upgrade, transaction `0xbb2cf00a325ce05f5168b2c3d6e960d2a052734bf80efb037799dbe1fd7fb3bd`. It mints 500 CLERK to the signer, once an hour, and registers their coin store. The desk asks StarKey to sign it. It does not mint from the server.
+
 ## Public site
 
 One Render web service is enough. `yarn start` builds `frontend/` when `frontend/dist` is missing, then `agents/src/server.js` serves that desk at `/` and the JSON API at `/api`. Do not set `CLERK_LEDGER=memory` on Render. The market address stays the published testnet package.

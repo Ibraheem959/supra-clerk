@@ -8,11 +8,11 @@ export async function readPortfolio(chain, input) {
   const coins = resources.filter((item) => String(item.type).includes("::coin::CoinStore<"));
   const claims = [{
     label: supra === null ? "DATA" : "VERIFIED ON-CHAIN",
-    claim: supra === null ? "SUPRA coin store was not returned." : `SUPRA balance ${formatSupra(supra)}.`,
-    evidence: "CoinStore<0x1::supra_coin::SupraCoin>",
+    claim: supra === null ? "No SUPRA balance was found." : `SUPRA balance is ${formatSupra(supra)}.`,
+    evidence: "SUPRA balance",
   }];
   if (!coins.length) {
-    claims.push({ label: "DATA", claim: "No other CoinStore resources were on the first page.", evidence: "resources page" });
+    claims.push({ label: "DATA", claim: "No other coins were found.", evidence: "Coin balances" });
   }
   for (const coin of coins.slice(0, 8)) {
     claims.push({
@@ -22,9 +22,9 @@ export async function readPortfolio(chain, input) {
     });
   }
   claims.push({
-    label: "AI ANALYSIS",
-    claim: "No profit or loss is shown. A price was not taken from an oracle for these coins. This is not a trade.",
-    evidence: "Suggestions and execution stay separate.",
+    label: "DATA",
+    claim: "No profit or loss is shown. Prices were not looked up. This is not a trade.",
+    evidence: "Balance only",
   });
-  return { title: "Portfolio", subject: address, claims, unavailable: ["Coins on a later resource page are omitted."] };
+  return { title: "Portfolio", subject: address, claims, unavailable: ["Only the coins returned for this account are shown."] };
 }

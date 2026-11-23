@@ -13,7 +13,7 @@ import { writeContent } from "./agents/content.js";
 import { scanWallet } from "./agents/cleaner.js";
 import { discoveredVenues, tradePreview } from "./agents/trader.js";
 import { readPortfolio } from "./agents/portfolio.js";
-import { normalizeAddress } from "./address.js";
+import { prepareCall } from "./tx.js";
 
 const webRoot = resolve(fileURLToPath(new URL("../../frontend/dist/", import.meta.url)));
 const ledger = createLedger(() => Math.floor(Date.now() / 1000));
@@ -98,9 +98,35 @@ async function handle(req, res) {
         market,
         explorer: market ? `https://testnet.suprascan.io/address/${market}` : "",
         note: market
-          ? "Escrow is the Move module on Supra testnet. A hire is a StarKey transaction. This process does not mark a job paid."
+          ? "Supra testnet. A hire is a StarKey payment. This desk does not mark a job paid until that transaction succeeds."
           : "CLERK_LEDGER=memory. Escrow is local and is not Supra.",
+        faucet: Boolean(market),
       });
+    }
+    if (req.method === "POST" && url.pathname === "/api/tx") {
+      if (!market) return send(res, 400, { error: "Chain mode is off." });
+      const body = await jsonBody(req);
+      const prepared = await prepareCall({
+        kind: body.kind,
+        sender: body.sender,
+        agentId: body.agentId,
+        input: body.input,
+      });
+      return send(res, 200, prepared);
+    }
+    if (req.method === "POST" && url.pathname === "/api/tx/status") {
+      const body = await jsonBody(req);
+      const tx = await deskChain.transaction(String(body.hash || ""));
+      if (!tx) return send(res, 200, { status: "pending" });
+      return send(res, 200, { status: tx.status === "Success" ? "success" : "failed" });
+    }
+    if (req.method === "POST" && url.pathname === "/api/supra-faucet") {
+      const body = await jsonBody(req);
+      const user = normalizeAddress(body.user);
+      const response = await fetch(`https://rpc-testnet.supra.com/rpc/v1/wallet/faucet/${user}`, { headers: { "user-agent": "clerk/1.0" } });
+      const text = await response.text();
+      if (!response.ok) return send(res, 400, { error: "The Supra faucet did not send SUPRA. Try again in a little while." });
+      return send(res, 200, { ok: true, detail: text.slice(0, 180) });
     }
     if (req.method === "GET" && url.pathname === "/api/agents") {
       if (market) return send(res, 200, (await readDesk(deskChain, market)).agents.map(publicAgent));

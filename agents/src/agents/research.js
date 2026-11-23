@@ -10,29 +10,29 @@ export async function researchProject(chain, input) {
   const claims = [
     {
       label: account ? "VERIFIED ON-CHAIN" : "DATA",
-      claim: account ? `Account sequence is ${account.sequence_number}.` : "The node did not return this account.",
-      evidence: `GET /rpc/v3/accounts/${address}`,
+      claim: account ? `This account has sent ${account.sequence_number} transactions.` : "This account was not found.",
+      evidence: address,
     },
     {
       label: "VERIFIED ON-CHAIN",
-      claim: names.length ? `Published modules on the first page: ${names.join(", ")}.` : "No modules were returned for this account.",
-      evidence: `GET /rpc/v3/accounts/${address}/modules`,
+      claim: names.length ? `Contracts published here: ${names.join(", ")}.` : "No contracts were found on this account.",
+      evidence: "Published contracts",
     },
     {
       label: balance === null ? "DATA" : "VERIFIED ON-CHAIN",
-      claim: balance === null ? "SUPRA coin balance was not on this account." : `SUPRA coin store holds ${formatSupra(balance)}.`,
-      evidence: "CoinStore<0x1::supra_coin::SupraCoin>",
+      claim: balance === null ? "No SUPRA balance was found." : `SUPRA balance is ${formatSupra(balance)}.`,
+      evidence: "SUPRA balance",
     },
     {
-      label: "AI ANALYSIS",
-      claim: "Holder counts, prices, and social links were not queried, so they are omitted. Nothing here is a valuation.",
-      evidence: "Absent fields are left blank on purpose.",
+      label: "DATA",
+      claim: "Prices and social links are not included. This is not a valuation.",
+      evidence: "Those were not looked up.",
     },
   ];
   return {
     title: "Project Research",
     subject: address,
     claims,
-    unavailable: ["Holder distribution is not on the account resource API used here.", "No market price was attached."],
+    unavailable: ["How many people hold it was not counted.", "No market price was added."],
   };
 }
