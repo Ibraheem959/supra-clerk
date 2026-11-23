@@ -1,0 +1,11 @@
+{
+  "name": "supra-clerk",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test agents/test/*.test.js",
+    "start": "node agents/src/server.js",
+    "dev:web": "npm --prefix frontend run dev",
+    "build:web": "npm --prefix frontend run build"
+  }
+}
