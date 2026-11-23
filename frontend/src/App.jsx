@@ -65,8 +65,10 @@ export function App() {
     await provider.changeNetwork?.({ chainId: chain });
     const next = accountFrom(await provider.account());
     setAddress(next);
-    if (next) {
+    if (next && health?.mode !== "chain") {
       await api("/api/faucet", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user: next }) });
+    }
+    if (next) {
       const row = await api(`/api/balance/${next}`);
       setBalance(row.balance);
       setJobs(await api(`/api/jobs?user=${next}`));
@@ -79,6 +81,24 @@ export function App() {
     if (!input.trim()) return setError("The job needs an input.");
     setBusy(true);
     try {
+      if (health?.mode === "chain") {
+        const prepared = await api("/api/jobs", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ user: address, agentId: agent.id, input }),
+        });
+        setOpenJob({
+          job: { status: "AWAITING SIGNATURE" },
+          report: {
+            title: agent.name,
+            subject: prepared.function,
+            claims: [{ label: "DATA", claim: prepared.note, evidence: prepared.args.join("\n") }],
+            unavailable: ["StarKey must sign the hire. This page does not mark it paid."],
+          },
+        });
+        setPage("job");
+        return;
+      }
       const created = await api("/api/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -119,7 +139,13 @@ export function App() {
         </nav>
       </header>
       <main className="main">
-        {health ? <p className="banner">Local ledger, not a published Supra market. Reports still read {health.rpc}. Chain id {health.chainId}. {health.note}</p> : null}
+        {health ? (
+          <p className="banner">
+            {health.mode === "chain"
+              ? `On-chain escrow. Supra testnet, chain id ${health.chainId}. Market ${health.market}. Reports still read ${health.reports}.`
+              : health.note}
+          </p>
+        ) : null}
         {error ? <p className="error">{error}</p> : null}
         {page === "home" ? <Home onBrowse={() => setPage("market")} /> : null}
         {page === "market" ? (
