@@ -23,9 +23,26 @@ function short(address = "") {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
-function permission(text = "") {
-  if (text === "READ ONLY") return "Reads only. It cannot move your coins.";
-  return text;
+const BLURB = {
+  "Wallet Detective": "Balance and recent activity, in plain language.",
+  "Project Research": "What this account has published, and the SUPRA it holds.",
+  "Contract Risk": "Looks for public actions such as mint or upgrade.",
+  "Content": "Turns a finished report into a short post. It does not add facts.",
+  "Wallet Cleaner": "Only lists a burn if the mechanism is already proven.",
+  "Trading": "Checks whether a price exists. It will not invent one or send a swap.",
+  "Portfolio": "The coins on an account. No profit, no price guess.",
+};
+
+function blurb(agent) {
+  return BLURB[agent.name] || agent.description;
+}
+
+function jobLabel(status) {
+  if (status === "FUNDED") return "Paid";
+  if (status === "COMPLETED") return "Done";
+  if (status === "REFUNDED") return "Refunded";
+  if (status === "FAILED") return "Returned";
+  return status || "";
 }
 
 function placeholder(type) {
@@ -220,10 +237,8 @@ export function App() {
                 <article className="card" key={agent.id}>
                   <span className="eyebrow">{agent.category}</span>
                   <h2>{agent.name}</h2>
-                  <p>{agent.description}</p>
+                  <p>{blurb(agent)}</p>
                   <strong className="price">{clerk(agent.price)}</strong>
-                  <span className="muted">{permission(agent.permissions)}</span>
-                  <span className="muted">{agent.completed} finished · {agent.rating === null ? "no rating yet" : `${agent.rating.toFixed(1)} rating`}</span>
                   <button type="button" onClick={() => { setPicked(agent); setInput(""); setPage("hire"); }}>Hire</button>
                 </article>
               ))}
@@ -232,15 +247,10 @@ export function App() {
         ) : null}
         {page === "hire" && picked ? (
           <section className="panel hire">
-            <span className="eyebrow">{permission(picked.permissions)}</span>
+            <span className="eyebrow">{clerk(picked.price)}</span>
             <h1>{picked.name}</h1>
-            <p>{picked.description}</p>
-            <p className="price">{clerk(picked.price)}</p>
-            <ol className="steps">
-              <li>Write the job.</li>
-              <li>StarKey opens so you can approve the payment.</li>
-              <li>The result shows here only after testnet accepts it.</li>
-            </ol>
+            <p>{blurb(picked)}</p>
+            <p>StarKey will ask you to approve this payment. The result appears after the network accepts it.</p>
             <label>What should it look at?
               <textarea rows={4} value={input} onChange={(event) => setInput(event.target.value)} placeholder={placeholder(picked.inputType)} />
             </label>
@@ -263,7 +273,7 @@ export function App() {
                   setPage("job");
                 }}>
                   <strong>{agent?.name || `Job ${job.id}`}</strong>
-                  <span>{job.status === "FUNDED" ? "Paid, in escrow" : job.status === "COMPLETED" ? "Finished" : job.status === "REFUNDED" ? "Refunded" : job.status === "FAILED" ? "Returned" : job.status}</span>
+                  <span>{jobLabel(job.status)}</span>
                   <span>{clerk(job.amount)}</span>
                 </button>
               );
@@ -276,7 +286,7 @@ export function App() {
         {page === "job" && openJob && !openJob.report ? (
           <section className="panel">
             <h1>Job {openJob.job?.id}</h1>
-            <p>{openJob.job?.status === "FUNDED" ? "This payment is in escrow. The result is not stored after the desk restarts, so hire again only if you still want the work." : "This job has no result on screen."}</p>
+            <p>This payment is on testnet. Run the agent again if you want a fresh result.</p>
           </section>
         ) : null}
         {page === "trade" ? <Trade /> : null}
@@ -328,7 +338,7 @@ export function App() {
           />
         ) : null}
       </main>
-      <footer className="foot">CLERK testnet · chain 6 · payments stay in escrow until the job is finished</footer>
+      <footer className="foot">Testnet. Pay an agent, then read the result.</footer>
     </div>
   );
 }
@@ -336,40 +346,56 @@ export function App() {
 function Home({ connected, onBrowse, onConnect }) {
   return (
     <section className="hero">
-      <div>
-        <p className="eyebrow">A desk, not a chat</p>
-        <h1>Hire an agent. Pay for the job.</h1>
-        <p className="lede">A wallet report, a contract reading, or a cleanup that will not burn what it cannot prove. CLERK pays for the work. It does not earn yield.</p>
-        <div className="actions">
-          <button className="pay" type="button" onClick={onBrowse}>See the agents</button>
-          {connected ? null : <button className="ghost" type="button" onClick={onConnect}>Connect StarKey</button>}
-        </div>
+      <p className="eyebrow">Testnet</p>
+      <h1>Pay an agent. Get the job.</h1>
+      <p className="lede">Wallet reports, contract checks, and cleanups. CLERK pays for the work. It does not earn yield.</p>
+      <div className="actions">
+        <button className="pay" type="button" onClick={onBrowse}>See the agents</button>
+        {connected ? null : <button className="ghost" type="button" onClick={onConnect}>Connect StarKey</button>}
       </div>
-      <ol className="panel steps">
-        <li><strong>Connect</strong> StarKey on Supra testnet.</li>
-        <li><strong>Get test CLERK</strong> from the wallet page. You also need a little SUPRA for the fee.</li>
-        <li><strong>Hire</strong> an agent. StarKey asks you to approve the exact payment.</li>
-      </ol>
     </section>
   );
 }
 
-function Report({ report, job, hash }) {
-  const subject = String(report.subject || "");
-  const long = subject.length > 42;
+function Report({ report }) {
+  const rows = Array.isArray(report.history) ? report.history : [];
+  const holdings = Array.isArray(report.holdings) ? report.holdings : [];
   return (
-    <section className="stack">
-      <p className="eyebrow">{job?.status === "FUNDED" ? "Paid, in escrow" : job?.status || "Result"} · {report.title}</p>
-      {long ? <p className="subject">{subject}</p> : <h1>{subject || report.title}</h1>}
-      {report.claims?.map((claim, index) => (
-        <article className="claim" data-label={claim.label} key={index}>
-          <small>{claim.label === "DATA" ? "Found" : claim.label === "VERIFIED ON-CHAIN" ? "On chain" : claim.label === "RISK SIGNAL" ? "Watch" : claim.label}</small>
-          <p>{claim.claim}</p>
-          {claim.evidence ? <pre>{claim.evidence}</pre> : null}
-        </article>
-      ))}
-      {report.unavailable?.map((line) => <p className="muted" key={line}>{line}</p>)}
-      {hash ? <a href={`https://testnet.suprascan.io/tx/${hash}`}>View the payment</a> : null}
+    <section className="report">
+      <div>
+        <p className="eyebrow">{report.title || "Result"}</p>
+        <h1>{report.summary || report.title}</h1>
+        {report.subject ? <p className="subject">{short(report.subject)}</p> : null}
+      </div>
+      {holdings.length ? (
+        <div className="balances">
+          {holdings.map((item) => (
+            <div className="stat" key={item.name}>
+              <strong>{item.amount}</strong>
+              <span>{item.name}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {rows.length ? (
+        <ol className="timeline">
+          {rows.map((row, index) => (
+            <li key={index}>
+              <time>{row.when || "Recent"}</time>
+              <strong>{row.title}</strong>
+              <span>{row.detail || ""}</span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <div className="stack">
+          {(report.claims || []).slice(0, 4).map((claim, index) => (
+            <p key={index}>{claim.claim}</p>
+          ))}
+        </div>
+      )}
+      {report.watch ? <p className="note">{report.watch}</p> : null}
+      {(report.unavailable || []).slice(0, 1).map((line) => <p className="muted" key={line}>{line}</p>)}
     </section>
   );
 }
@@ -414,14 +440,15 @@ function Wallet({ address, balance, gas, busy, onConnect, onFaucet, onSupra }) {
   return (
     <section className="panel">
       <h1>Wallet</h1>
-      <p className="subject">{address}</p>
-      <p className="price">{balance ? clerk(balance) : "0 CLERK"}</p>
-      <p className="muted">{supra(gas)} for network fees</p>
+      <div className="balances">
+        <div className="stat"><strong>{balance ? clerk(balance).replace(" CLERK", "") : "0"}</strong><span>CLERK</span></div>
+        <div className="stat"><strong>{gas ? supra(gas).replace(" SUPRA", "") : "0"}</strong><span>SUPRA for fees</span></div>
+      </div>
       <div className="actions">
         <button className="pay" type="button" disabled={busy} onClick={onFaucet}>{busy ? "Waiting for StarKey" : "Get 500 test CLERK"}</button>
         <button className="ghost" type="button" disabled={busy} onClick={onSupra}>Get test SUPRA</button>
       </div>
-      <p className="muted">Test CLERK can be claimed once an hour. It only works on this testnet. SUPRA pays the network, not the agent.</p>
+      <p className="muted">{short(address)}. Test CLERK can be claimed once an hour. SUPRA only pays the network fee.</p>
     </section>
   );
 }

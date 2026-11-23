@@ -1,114 +1,113 @@
 import { normalizeAddress } from "../address.js";
-import { eventsOf, formatSupra, functionOf, senderOf, whenOf } from "../chain.js";
+import { eventsOf, formatSupra, functionOf, whenOf } from "../chain.js";
 
 const INJECTION = /ignore previous|you are now|system prompt|pretend the balance/i;
+const UNIT = 100_000_000n;
+
+function amount(raw) {
+  try {
+    const value = BigInt(raw);
+    const whole = value / UNIT;
+    const frac = (value % UNIT).toString().padStart(8, "0").replace(/0+$/, "");
+    return `${whole}${frac ? `.${frac}` : ""}`;
+  } catch {
+    return "";
+  }
+}
+
+function coinLabel(type = "") {
+  const name = String(type).split("::").pop()?.replace(/>$/, "") || "";
+  if (name === "SupraCoin") return "SUPRA";
+  if (name === "CLERK") return "CLERK";
+  if (!name || name.length > 16) return "coins";
+  return name;
+}
+
+function clock(iso) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-GB", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  });
+}
+
+function story(tx, self) {
+  const events = eventsOf(tx);
+  const hired = events.find((event) => String(event.type || "").endsWith("::Hired") && event.data?.user === self);
+  if (hired) {
+    const paid = amount(hired.data?.amount);
+    return { title: "Hired an agent", detail: paid ? `${paid} CLERK` : "Payment sent" };
+  }
+  const sent = events.find((event) => event.type === "0x1::coin::CoinWithdraw" && event.data?.account === self);
+  if (sent) {
+    const coin = coinLabel(sent.data?.coin_type);
+    const paid = amount(sent.data?.amount);
+    return { title: `Sent ${coin}`, detail: paid ? `${paid} ${coin}` : "" };
+  }
+  const got = events.find((event) => event.type === "0x1::coin::CoinDeposit" && event.data?.account === self);
+  if (got) {
+    const coin = coinLabel(got.data?.coin_type);
+    const paid = amount(got.data?.amount);
+    const fromFaucet = String(functionOf(tx)).endsWith("::faucet");
+    return { title: fromFaucet ? "Claimed test coins" : `Received ${coin}`, detail: paid ? `${paid} ${coin}` : "" };
+  }
+  const name = String(functionOf(tx) || "").split("::").pop();
+  if (name === "transfer" || name === "batch_transfer") return { title: "Sent SUPRA", detail: "" };
+  return { title: "Account activity", detail: "" };
+}
+
+function holdingsFrom(resources, balance) {
+  const rows = [];
+  if (balance !== null) rows.push({ name: "SUPRA", amount: formatSupra(balance).replace(" SUPRA", "") });
+  for (const item of resources) {
+    const type = String(item.type || "");
+    if (!type.includes("::coin::CoinStore<") || type.includes("supra_coin::SupraCoin")) continue;
+    const raw = item.data?.coin?.value;
+    if (raw === undefined || raw === null) continue;
+    rows.push({ name: coinLabel(type), amount: amount(raw) || "0" });
+  }
+  return rows.slice(0, 4);
+}
 
 export async function investigateWallet(chain, input) {
-  if (INJECTION.test(String(input))) {
-    input = String(input).split("\n")[0];
-  }
+  if (INJECTION.test(String(input))) input = String(input).split("\n")[0];
   const address = normalizeAddress(String(input).trim().split(/\s+/)[0]);
   const account = await chain.account(address);
   const balance = await chain.supraBalance(address);
   const resources = await chain.resources(address);
-  const history = chain.transactionPages
-    ? await chain.transactionPages(address, { limit: 100, pageSize: 25 })
-    : { transactions: await chain.transactions(address, 25), pages: 1, capped: false, sequence: account?.sequence_number ?? null };
-  const txs = history.transactions;
+  const historyPage = chain.transactionPages
+    ? await chain.transactionPages(address, { limit: 20, pageSize: 20 })
+    : { transactions: await chain.transactions(address, 12), capped: false };
+  const txs = (historyPage.transactions || []).filter((tx) => !tx.txn_type || tx.txn_type === "user");
+  const history = txs.slice(0, 8).map((tx) => {
+    const row = story(tx, address);
+    return { when: clock(whenOf(tx)), title: row.title, detail: row.detail };
+  });
+  const watch = txs.some((tx) => /mint|withdraw_all|pause|upgrade|set_admin/i.test(functionOf(tx) || ""));
   const claims = [];
-
   if (!account) {
-    claims.push({
-      label: "DATA",
-      claim: "This account was not found.",
-      evidence: address,
-    });
-  } else {
-    claims.push({
-      label: "VERIFIED ON-CHAIN",
-      claim: `Sequence number is ${account.sequence_number}.`,
-      evidence: "Account activity count",
-    });
+    claims.push({ label: "DATA", claim: "This account was not found.", evidence: "" });
   }
-
   claims.push({
     label: balance === null ? "DATA" : "VERIFIED ON-CHAIN",
     claim: balance === null
       ? "No SUPRA balance was found. None was invented."
       : `SUPRA balance is ${formatSupra(balance)}.`,
-    evidence: "SUPRA coin balance",
+    evidence: "",
   });
-
-  const types = resources.map((item) => item.type).filter(Boolean);
-  claims.push({
-    label: "VERIFIED ON-CHAIN",
-    claim: `${types.length} items are stored on this account.`,
-    evidence: types.slice(0, 12).join("\n") || "none",
-  });
-
-  const calls = [];
-  const counterparties = new Set();
-  for (const tx of txs) {
-    if (tx.txn_type && tx.txn_type !== "user") continue;
-    const fn = functionOf(tx);
-    if (fn) calls.push({ hash: tx.hash, fn, when: whenOf(tx), sender: senderOf(tx) });
-    for (const event of eventsOf(tx)) {
-      const data = event.data || {};
-      for (const key of ["account", "sender", "recipient", "store_owner"]) {
-        if (typeof data[key] === "string" && data[key].startsWith("0x") && data[key] !== address) {
-          counterparties.add(data[key]);
-        }
-      }
-    }
-  }
-
-  if (!txs.length) {
-    claims.push({
-      label: "DATA",
-      claim: "No transactions were found for this account.",
-      evidence: "Transaction history",
-    });
-  } else {
-    const first = txs[txs.length - 1];
-    const last = txs[0];
-    const shown = txs.length;
-    const seq = history.sequence;
-    const reach = history.capped
-      ? `Showing ${shown}. Stopped at the safety limit. Account sequence is ${seq ?? "unavailable"}, so older transactions may exist.`
-      : `Showing ${shown} transactions across ${history.pages} page${history.pages === 1 ? "" : "s"}.${seq !== null ? ` Account sequence is ${seq}.` : ""}`;
-    claims.push({
-      label: "VERIFIED ON-CHAIN",
-      claim: `${reach} Newest ${whenOf(last) || "time unavailable"}. Oldest fetched ${whenOf(first) || "time unavailable"}.`,
-      evidence: txs.slice(0, 8).map((tx) => {
-        const name = (functionOf(tx) || tx.txn_type || "transaction").split("::").pop();
-        return `${String(tx.hash || "").slice(0, 10)}… ${name}`;
-      }).join("\n"),
-    });
-  }
-
-  const suspicious = calls.filter((row) => /mint|withdraw_all|pause|upgrade|admin/i.test(row.fn));
-  if (suspicious.length) {
-    claims.push({
-      label: "RISK SIGNAL",
-      claim: "Some calls on this page use names often associated with admin control. That is a name match, not proof of privilege.",
-      evidence: suspicious.map((row) => `${row.hash} ${row.fn}`).join("\n"),
-    });
-  }
-
-  claims.push({
-    label: "AI ANALYSIS",
-    claim: "No language model rewrote this report. The lines above are the node responses. A prompt in the input cannot change a balance.",
-    evidence: `Input was treated as an address only. Counterparties named in events: ${[...counterparties].slice(0, 6).join(", ") || "none on this page"}.`,
-  });
-
   return {
-    title: "Wallet Detective",
+    title: "Wallet report",
     subject: address,
+    summary: balance === null ? "No SUPRA yet" : formatSupra(balance),
+    holdings: holdingsFrom(resources, balance),
+    history,
+    watch: watch ? "One recent action can create coins or change a contract. The name alone does not prove control." : "",
     claims,
-    unavailable: [
-      "This page is not a full history. The node returns a limited count.",
-      "Failed transactions may be absent from the account feed.",
-      "A resource the node did not return is not described.",
-    ],
+    unavailable: historyPage.capped ? ["Older activity is not shown."] : [],
   };
 }
