@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { createHash, randomBytes } from "node:crypto";
-import { createChain } from "./chain.js";
+import { createChain, supraRpc, chainIdFor } from "./chain.js";
+import { clerkBalance, marketAddress, readDesk, verifyHire } from "./market.js";
 import { createLedger } from "./rules.js";
 import { investigateWallet } from "./agents/detective.js";
 import { researchProject } from "./agents/research.js";
@@ -13,7 +14,9 @@ import { normalizeAddress } from "./address.js";
 
 const ledger = createLedger(() => Math.floor(Date.now() / 1000));
 const results = new Map();
-const chain = createChain();
+const reportChain = createChain(supraRpc(process.env.SUPRA_NETWORK || "mainnet"));
+const deskChain = createChain("https://rpc-testnet.supra.com");
+const market = marketAddress();
 const operator = (process.env.CLERK_OPERATOR || ledger.admin).toLowerCase();
 ledger.assignPlatform(operator);
 
@@ -57,13 +60,13 @@ function publicJob(job) {
 }
 
 async function runAgent(agent, input, prior) {
-  if (agent.name === "Wallet Detective") return investigateWallet(chain, input);
-  if (agent.name === "Project Research") return researchProject(chain, input);
-  if (agent.name === "Contract Risk") return reviewContract(chain, input);
+  if (agent.name === "Wallet Detective") return investigateWallet(reportChain, input);
+  if (agent.name === "Project Research") return researchProject(reportChain, input);
+  if (agent.name === "Contract Risk") return reviewContract(reportChain, input);
   if (agent.name === "Content") return writeContent(prior);
-  if (agent.name === "Wallet Cleaner") return scanWallet(chain, input, []);
+  if (agent.name === "Wallet Cleaner") return scanWallet(reportChain, input, []);
   if (agent.name === "Trading") return tradePreview({ pay: input, receive: "token", slippageBps: 100, quotes: unverifiedQuotes() });
-  if (agent.name === "Portfolio") return readPortfolio(chain, input);
+  if (agent.name === "Portfolio") return readPortfolio(reportChain, input);
   return {
     title: agent.name,
     subject: "custom",
@@ -89,19 +92,25 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/api/health") {
       return send(res, 200, {
         name: "Clerk",
-        mode: "memory",
-        live: false,
-        network: process.env.SUPRA_NETWORK || "mainnet",
-        chainId: process.env.SUPRA_NETWORK === "testnet" ? 6 : process.env.SUPRA_NETWORK === "devnet" ? 50 : 8,
-        rpc: chain.rpc,
-        market: process.env.CLERK_MARKET_ADDRESS || "",
-        note: "Job escrow in this process is a local ledger. Chain reads for reports use the Supra RPC. The market module is not published.",
+        mode: market ? "chain" : "memory",
+        live: Boolean(market),
+        network: market ? "testnet" : (process.env.SUPRA_NETWORK || "mainnet"),
+        chainId: market ? 6 : chainIdFor(process.env.SUPRA_NETWORK || "mainnet"),
+        rpc: market ? deskChain.rpc : reportChain.rpc,
+        reports: reportChain.rpc,
+        market,
+        explorer: market ? `https://testnet.suprascan.io/address/${market}` : "",
+        note: market
+          ? "Escrow is the Move module on Supra testnet. A hire is a StarKey transaction. This process does not mark a job paid."
+          : "CLERK_LEDGER=memory. Escrow is local and is not Supra.",
       });
     }
     if (req.method === "GET" && url.pathname === "/api/agents") {
+      if (market) return send(res, 200, (await readDesk(deskChain, market)).agents.map(publicAgent));
       return send(res, 200, ledger.agents().map(publicAgent));
     }
     if (req.method === "POST" && url.pathname === "/api/agents") {
+      if (market) return send(res, 400, { error: "Register an agent with clerk::market::register_agent in StarKey." });
       const body = await jsonBody(req);
       const created = ledger.registerAgent(body.creator, {
         name: body.name,
@@ -114,21 +123,51 @@ async function handle(req, res) {
       return send(res, 201, publicAgent(created));
     }
     if (req.method === "GET" && url.pathname === "/api/jobs") {
+      if (market) {
+        const user = url.searchParams.get("user");
+        const rows = (await readDesk(deskChain, market)).jobs.filter((item) => !user || item.user === normalizeAddress(user));
+        return send(res, 200, rows.map(publicJob));
+      }
       const user = url.searchParams.get("user");
       const rows = ledger.jobs().filter((item) => !user || item.user === user.toLowerCase());
       return send(res, 200, rows.map(publicJob));
     }
     if (req.method === "POST" && url.pathname === "/api/jobs") {
       const body = await jsonBody(req);
-      const user = normalizeAddress(body.user);
       const input = String(body.input ?? "");
+      if (market) {
+        return send(res, 200, {
+          mode: "chain",
+          function: `${market}::market::hire`,
+          args: [`u64:${body.agentId}`, `hex:${hashText(input)}`],
+          note: "Sign this in StarKey. Then submit the transaction hash to /api/jobs/verify. The desk will not pretend it was paid.",
+        });
+      }
+      const user = normalizeAddress(body.user);
       const created = ledger.hire(user, Number(body.agentId), hashText(input));
       const secret = randomBytes(16).toString("hex");
       results.set(created.id, { secret, input, report: null });
-      return send(res, 201, { ...publicJob(created), secret });
+      return send(res, 201, { ...publicJob(created), secret, mode: "memory" });
+    }
+    if (req.method === "POST" && url.pathname === "/api/jobs/verify") {
+      if (!market) return send(res, 400, { error: "chain mode is off" });
+      const body = await jsonBody(req);
+      const checked = await verifyHire(deskChain, market, body.hash, body.input);
+      if (!checked.agent) return send(res, 404, { error: "agent missing on chain" });
+      if (checked.job.status !== "FUNDED" && checked.job.status !== "COMPLETED") {
+        return send(res, 409, { error: "job is not funded" });
+      }
+      const report = await runAgent(checked.agent, body.input);
+      results.set(checked.job.id, { report, input: body.input });
+      return send(res, 200, {
+        job: publicJob(checked.job),
+        report,
+        settlement: "The report is ready. CLERK stays in escrow until the agent creator submits complete.",
+      });
     }
     const jobRun = url.pathname.match(/^\/api\/jobs\/(\d+)\/run$/);
     if (req.method === "POST" && jobRun) {
+      if (market) return send(res, 400, { error: "Completion is clerk::market::complete, signed by the agent creator." });
       const id = Number(jobRun[1]);
       const body = await jsonBody(req);
       const row = ledger.jobs().find((item) => item.id === id);
@@ -169,6 +208,7 @@ async function handle(req, res) {
       return send(res, 200, publicJob(ledger.refund(body.user, Number(jobRefund[1]))));
     }
     if (req.method === "POST" && url.pathname === "/api/faucet") {
+      if (market) return send(res, 400, { error: "CLERK is minted by the market admin. The testnet faucet only sends SUPRA." });
       const body = await jsonBody(req);
       const user = normalizeAddress(body.user);
       ledger.credit(user, 1000n * 100_000_000n);
@@ -176,7 +216,9 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && url.pathname.startsWith("/api/balance/")) {
       const user = normalizeAddress(decodeURIComponent(url.pathname.split("/").pop()));
-      return send(res, 200, { balance: ledger.balance(user).toString(), supra: (await chain.supraBalance(user).catch(() => null))?.toString() ?? null });
+      const supra = await reportChain.supraBalance(user).catch(() => null);
+      const clerk = market ? (await clerkBalance(deskChain, market, user)).toString() : ledger.balance(user).toString();
+      return send(res, 200, { balance: clerk, supra: supra?.toString() ?? null, mode: market ? "chain" : "memory" });
     }
     if (req.method === "POST" && url.pathname === "/api/trade/preview") {
       const body = await jsonBody(req);
@@ -184,7 +226,7 @@ async function handle(req, res) {
     }
     if (req.method === "POST" && url.pathname === "/api/cleaner/scan") {
       const body = await jsonBody(req);
-      return send(res, 200, await scanWallet(chain, body.address, []));
+      return send(res, 200, await scanWallet(reportChain, body.address, []));
     }
     return send(res, 404, { error: "not found" });
   } catch (error) {

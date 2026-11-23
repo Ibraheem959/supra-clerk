@@ -1,12 +1,11 @@
 [package]
 name = "Clerk"
 version = "1.0.0"
-upgrade_policy = "compatible"
 
 [addresses]
 clerk = "_"
 
-# The Supra CLI image supplies the framework. Do not pin a guessed git revision.
-# Publish with the CLI that matches the target network:
-#   supra move tool publish --rpc-url <RPC>
-[dependencies]
+[dependencies.SupraFramework]
+git = "https://github.com/Entropy-Foundation/aptos-core.git"
+rev = "dev"
+subdir = "aptos-move/framework/supra-framework"

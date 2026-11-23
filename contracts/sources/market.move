@@ -1,5 +1,4 @@
-/// Clerk marketplace. CLERK is only spent to hire an agent.
-/// There is no stake, no emission, and no public mint.
+/// Clerk marketplace. CLERK pays for a job. It is not staked.
 module clerk::market {
     use std::signer;
     use std::string::{Self, String};
@@ -77,7 +76,6 @@ module clerk::market {
         rated: bool,
     }
 
-    /// A permission the user recorded. It does not spend coins and it does not call a DEX.
     struct Watch has store, copy, drop {
         id: u64,
         user: address,
@@ -119,6 +117,7 @@ module clerk::market {
             true,
         );
         coin::destroy_freeze_cap(freeze);
+        coin::register<CLERK>(publisher);
         move_to(publisher, Caps { mint, burn });
         let admin = signer::address_of(publisher);
         move_to(publisher, Config {
@@ -130,10 +129,7 @@ module clerk::market {
             next_job: 1,
             next_watch: 1,
         });
-        move_to(publisher, Treasury {
-            coins: coin::zero<CLERK>(),
-            fees: coin::zero<CLERK>(),
-        });
+        move_to(publisher, Treasury { coins: coin::zero<CLERK>(), fees: coin::zero<CLERK>() });
         move_to(publisher, Registry {
             agents: vector::empty(),
             jobs: vector::empty(),
@@ -141,29 +137,20 @@ module clerk::market {
         });
     }
 
-    fun config_mut(): &mut Config acquires Config {
-        borrow_global_mut<Config>(@clerk)
-    }
-
-    fun assert_admin(account: &signer) acquires Config {
-        assert!(signer::address_of(account) == borrow_global<Config>(@clerk).admin, E_ADMIN);
-    }
-
     public entry fun mint_to(admin: &signer, to: address, amount: u64) acquires Caps, Config {
-        assert_admin(admin);
-        let coins = coin::mint<CLERK>(amount, &borrow_global<Caps>(@clerk).mint);
-        coin::deposit(to, coins);
+        assert!(signer::address_of(admin) == borrow_global<Config>(@clerk).admin, E_ADMIN);
+        coin::deposit(to, coin::mint<CLERK>(amount, &borrow_global<Caps>(@clerk).mint));
     }
 
     public entry fun set_fee_bps(admin: &signer, fee_bps: u64) acquires Config {
-        assert_admin(admin);
+        assert!(signer::address_of(admin) == borrow_global<Config>(@clerk).admin, E_ADMIN);
         assert!(fee_bps <= 1000, E_FEE);
-        config_mut().fee_bps = fee_bps;
+        borrow_global_mut<Config>(@clerk).fee_bps = fee_bps;
     }
 
     public entry fun set_treasury(admin: &signer, treasury: address) acquires Config {
-        assert_admin(admin);
-        config_mut().treasury = treasury;
+        assert!(signer::address_of(admin) == borrow_global<Config>(@clerk).admin, E_ADMIN);
+        borrow_global_mut<Config>(@clerk).treasury = treasury;
     }
 
     public entry fun register_agent(
@@ -178,11 +165,9 @@ module clerk::market {
         let n = vector::length(&name);
         assert!(n > 0 && n <= 64, E_NAME);
         assert!(price > 0, E_PRICE);
-        let cfg = config_mut();
-        let id = cfg.next_agent;
-        cfg.next_agent = id + 1;
-        let registry = borrow_global_mut<Registry>(@clerk);
-        vector::push_back(&mut registry.agents, Agent {
+        let id = borrow_global<Config>(@clerk).next_agent;
+        borrow_global_mut<Config>(@clerk).next_agent = id + 1;
+        vector::push_back(&mut borrow_global_mut<Registry>(@clerk).agents, Agent {
             id,
             creator: signer::address_of(creator),
             name: string::utf8(name),
@@ -197,91 +182,153 @@ module clerk::market {
             rating_sum: 0,
             rating_count: 0,
             volume: 0,
-            });
+        });
     }
 
     public entry fun set_agent_price(creator: &signer, agent_id: u64, price: u64) acquires Registry {
         assert!(price > 0, E_PRICE);
-        let agent = find_agent_mut(agent_id);
-        assert!(agent.creator == signer::address_of(creator), E_AUTH);
-        agent.price = price;
+        let agents = &mut borrow_global_mut<Registry>(@clerk).agents;
+        let i = 0;
+        let n = vector::length(agents);
+        while (i < n) {
+            let agent = vector::borrow_mut(agents, i);
+            if (agent.id == agent_id) {
+                assert!(agent.creator == signer::address_of(creator), E_AUTH);
+                agent.price = price;
+                return
+            };
+            i = i + 1;
+        };
+        abort E_AGENT
     }
 
     public entry fun set_agent_active(creator: &signer, agent_id: u64, active: bool) acquires Registry {
-        let agent = find_agent_mut(agent_id);
-        assert!(agent.creator == signer::address_of(creator), E_AUTH);
-        agent.active = active;
+        let agents = &mut borrow_global_mut<Registry>(@clerk).agents;
+        let i = 0;
+        let n = vector::length(agents);
+        while (i < n) {
+            let agent = vector::borrow_mut(agents, i);
+            if (agent.id == agent_id) {
+                assert!(agent.creator == signer::address_of(creator), E_AUTH);
+                agent.active = active;
+                return
+            };
+            i = i + 1;
+        };
+        abort E_AGENT
     }
 
     public entry fun hire(user: &signer, agent_id: u64, input_hash: vector<u8>) acquires Config, Registry, Treasury {
         assert!(vector::length(&input_hash) == 32, E_HASH);
-        let agent = find_agent(agent_id);
-        assert!(agent.active, E_AGENT);
-        let amount = agent.price;
-        let paid = coin::withdraw<CLERK>(user, amount);
+        let listing = copy_agent(agent_id);
+        assert!(listing.active, E_AGENT);
+        let paid = coin::withdraw<CLERK>(user, listing.price);
         coin::merge(&mut borrow_global_mut<Treasury>(@clerk).coins, paid);
-        let cfg = config_mut();
-        let id = cfg.next_job;
-        cfg.next_job = id + 1;
         let now = timestamp::now_seconds();
-        let fee = amount * cfg.fee_bps / 10000;
-        let job = Job {
+        let fee_bps = borrow_global<Config>(@clerk).fee_bps;
+        let review = borrow_global<Config>(@clerk).review_secs;
+        let id = borrow_global<Config>(@clerk).next_job;
+        borrow_global_mut<Config>(@clerk).next_job = id + 1;
+        let payer = signer::address_of(user);
+        vector::push_back(&mut borrow_global_mut<Registry>(@clerk).jobs, Job {
             id,
-            user: signer::address_of(user),
+            user: payer,
             agent_id,
-            amount,
-            fee,
+            amount: listing.price,
+            fee: listing.price * fee_bps / 10000,
             input_hash,
             result_hash: vector::empty(),
             status: FUNDED,
             created_secs: now,
-            deadline_secs: now + cfg.review_secs,
+            deadline_secs: now + review,
             rated: false,
-        };
-        vector::push_back(&mut borrow_global_mut<Registry>(@clerk).jobs, job);
-        event::emit(Hired { job_id: id, user: signer::address_of(user), agent_id, amount });
+        });
+        event::emit(Hired { job_id: id, user: payer, agent_id, amount: listing.price });
     }
 
-    public entry fun complete(creator: &signer, job_id: u64, result_hash: vector<u8>) acquires Config, Registry, Treasury {
+    public entry fun complete(creator: &signer, job_id: u64, result_hash: vector<u8>) acquires Registry, Treasury {
         assert!(vector::length(&result_hash) == 32, E_HASH);
-        settle(creator, job_id, COMPLETED, result_hash);
+        let row = copy_job(job_id);
+        assert!(row.status == FUNDED, E_STATUS);
+        let listing = copy_agent(row.agent_id);
+        assert!(listing.creator == signer::address_of(creator), E_AUTH);
+        let payout = row.amount - row.fee;
+        if (payout > 0) {
+            coin::deposit(listing.creator, coin::extract(&mut borrow_global_mut<Treasury>(@clerk).coins, payout));
+        };
+        if (row.fee > 0) {
+            let fee = coin::extract(&mut borrow_global_mut<Treasury>(@clerk).coins, row.fee);
+            coin::merge(&mut borrow_global_mut<Treasury>(@clerk).fees, fee);
+        };
+        bump_agent(row.agent_id, true, row.amount);
+        write_job(job_id, COMPLETED, result_hash);
+        event::emit(Settled { job_id, status: COMPLETED, result_hash });
     }
 
-    public entry fun fail(creator: &signer, job_id: u64) acquires Config, Registry, Treasury {
-        settle(creator, job_id, FAILED, vector::empty());
+    public entry fun fail(creator: &signer, job_id: u64) acquires Registry, Treasury {
+        let row = copy_job(job_id);
+        assert!(row.status == FUNDED, E_STATUS);
+        let listing = copy_agent(row.agent_id);
+        assert!(listing.creator == signer::address_of(creator), E_AUTH);
+        coin::deposit(row.user, coin::extract(&mut borrow_global_mut<Treasury>(@clerk).coins, row.amount));
+        bump_agent(row.agent_id, false, 0);
+        write_job(job_id, FAILED, vector::empty());
+        event::emit(Settled { job_id, status: FAILED, result_hash: vector::empty() });
     }
 
     public entry fun refund(user: &signer, job_id: u64) acquires Registry, Treasury {
-        let job = find_job_mut(job_id);
-        assert!(job.user == signer::address_of(user), E_AUTH);
-        assert!(job.status == FUNDED, E_STATUS);
-        assert!(timestamp::now_seconds() >= job.deadline_secs, E_STATUS);
-        refund_job(job);
+        let row = copy_job(job_id);
+        assert!(row.user == signer::address_of(user), E_AUTH);
+        assert!(row.status == FUNDED, E_STATUS);
+        assert!(timestamp::now_seconds() >= row.deadline_secs, E_STATUS);
+        pay_back(row.user, row.amount);
+        write_job(job_id, REFUNDED, vector::empty());
+        event::emit(Settled { job_id, status: REFUNDED, result_hash: vector::empty() });
     }
 
-    /// No-op until the deadline. Safe to call; it does not abort when the job is not ready.
-    /// Not registered with Automation in this repository. A global scan spends gas every block.
+    /// Returns immediately when the job is missing, finished, or not yet due.
+    /// Not registered with Automation until gas is measured on the target network.
     public entry fun settle_expired(job_id: u64) acquires Registry, Treasury {
-        if (!exists_job(job_id)) return;
-        let job = find_job_mut(job_id);
-        if (job.status != FUNDED) return;
-        if (timestamp::now_seconds() < job.deadline_secs) return;
-        refund_job(job);
+        if (!job_exists(job_id)) return;
+        let row = copy_job(job_id);
+        if (row.status != FUNDED) return;
+        if (timestamp::now_seconds() < row.deadline_secs) return;
+        pay_back(row.user, row.amount);
+        write_job(job_id, REFUNDED, vector::empty());
+        event::emit(Settled { job_id, status: REFUNDED, result_hash: vector::empty() });
     }
 
     public entry fun rate(user: &signer, job_id: u64, score: u64) acquires Registry {
         assert!(score >= 1 && score <= 5, E_RATING);
-        let job = find_job_mut(job_id);
-        assert!(job.user == signer::address_of(user), E_AUTH);
-        assert!(job.status == COMPLETED, E_STATUS);
-        assert!(!job.rated, E_RATING);
-        job.rated = true;
-        let agent = find_agent_mut(job.agent_id);
-        agent.rating_sum = agent.rating_sum + score;
-        agent.rating_count = agent.rating_count + 1;
+        let row = copy_job(job_id);
+        assert!(row.user == signer::address_of(user), E_AUTH);
+        assert!(row.status == COMPLETED, E_STATUS);
+        assert!(!row.rated, E_RATING);
+        let jobs = &mut borrow_global_mut<Registry>(@clerk).jobs;
+        let i = 0;
+        while (i < vector::length(jobs)) {
+            let job = vector::borrow_mut(jobs, i);
+            if (job.id == job_id) {
+                job.rated = true;
+                break
+            };
+            i = i + 1;
+        };
+        let agents = &mut borrow_global_mut<Registry>(@clerk).agents;
+        i = 0;
+        while (i < vector::length(agents)) {
+            let agent = vector::borrow_mut(agents, i);
+            if (agent.id == row.agent_id) {
+                agent.rating_sum = agent.rating_sum + score;
+                agent.rating_count = agent.rating_count + 1;
+                return
+            };
+            i = i + 1;
+        };
+        abort E_AGENT
     }
 
-    /// Records a limit. Does not transfer CLERK and does not call Atmos, Dexlyn, or WARs.
+    /// A limit the user recorded. It does not move coins and it does not call a DEX.
     public entry fun register_watch(
         user: &signer,
         token: address,
@@ -292,9 +339,8 @@ module clerk::market {
     ) acquires Config, Registry {
         assert!(max_slippage_bps <= 1000, E_FEE);
         assert!(max_spend > 0, E_PRICE);
-        let cfg = config_mut();
-        let id = cfg.next_watch;
-        cfg.next_watch = id + 1;
+        let id = borrow_global<Config>(@clerk).next_watch;
+        borrow_global_mut<Config>(@clerk).next_watch = id + 1;
         vector::push_back(&mut borrow_global_mut<Registry>(@clerk).watches, Watch {
             id,
             user: signer::address_of(user),
@@ -320,55 +366,51 @@ module clerk::market {
             };
             i = i + 1;
         };
-        assert!(false, E_JOB);
+        abort E_JOB
     }
 
-    fun settle(creator: &signer, job_id: u64, status: u8, result_hash: vector<u8>) acquires Registry, Treasury {
-        let (user_addr, agent_id, amount, fee) = job_facts(job_id);
-        let creator_addr = agent_creator(agent_id);
-        assert!(creator_addr == signer::address_of(creator), E_AUTH);
-        if (status == COMPLETED) {
-            let treasury = borrow_global_mut<Treasury>(@clerk);
-            let payout = amount - fee;
-            if (payout > 0) coin::deposit(creator_addr, coin::extract(&mut treasury.coins, payout));
-            if (fee > 0) coin::merge(&mut treasury.fees, coin::extract(&mut treasury.coins, fee));
-            let agent = find_agent_mut(agent_id);
-            agent.completed = agent.completed + 1;
-            agent.volume = agent.volume + amount;
-            let job = find_job_mut(job_id);
-            job.result_hash = result_hash;
-            job.status = COMPLETED;
-        } else {
-            coin::deposit(user_addr, coin::extract(&mut borrow_global_mut<Treasury>(@clerk).coins, amount));
-            let agent = find_agent_mut(agent_id);
-            agent.failed = agent.failed + 1;
-            let job = find_job_mut(job_id);
-            job.status = FAILED;
+    fun pay_back(user: address, amount: u64) acquires Treasury {
+        coin::deposit(user, coin::extract(&mut borrow_global_mut<Treasury>(@clerk).coins, amount));
+    }
+
+    fun bump_agent(agent_id: u64, ok: bool, volume: u64) acquires Registry {
+        let agents = &mut borrow_global_mut<Registry>(@clerk).agents;
+        let i = 0;
+        while (i < vector::length(agents)) {
+            let agent = vector::borrow_mut(agents, i);
+            if (agent.id == agent_id) {
+                if (ok) {
+                    agent.completed = agent.completed + 1;
+                    agent.volume = agent.volume + volume;
+                } else {
+                    agent.failed = agent.failed + 1;
+                };
+                return
+            };
+            i = i + 1;
         };
-        event::emit(Settled { job_id, status, result_hash });
+        abort E_AGENT
     }
 
-    fun job_facts(job_id: u64): (address, u64, u64, u64) acquires Registry {
-        let job = find_job_mut(job_id);
-        assert!(job.status == FUNDED, E_STATUS);
-        (job.user, job.agent_id, job.amount, job.fee)
+    fun write_job(job_id: u64, status: u8, result_hash: vector<u8>) acquires Registry {
+        let jobs = &mut borrow_global_mut<Registry>(@clerk).jobs;
+        let i = 0;
+        while (i < vector::length(jobs)) {
+            let job = vector::borrow_mut(jobs, i);
+            if (job.id == job_id) {
+                job.status = status;
+                job.result_hash = result_hash;
+                return
+            };
+            i = i + 1;
+        };
+        abort E_JOB
     }
 
-    fun agent_creator(agent_id: u64): address acquires Registry {
-        find_agent(agent_id).creator
-    }
-
-    fun refund_job(job: &mut Job) acquires Treasury {
-        coin::deposit(job.user, coin::extract(&mut borrow_global_mut<Treasury>(@clerk).coins, job.amount));
-        job.status = REFUNDED;
-        event::emit(Settled { job_id: job.id, status: REFUNDED, result_hash: vector::empty() });
-    }
-
-    fun find_agent(agent_id: u64): Agent acquires Registry {
+    fun copy_agent(agent_id: u64): Agent acquires Registry {
         let agents = &borrow_global<Registry>(@clerk).agents;
         let i = 0;
-        let n = vector::length(agents);
-        while (i < n) {
+        while (i < vector::length(agents)) {
             let agent = vector::borrow(agents, i);
             if (agent.id == agent_id) return *agent;
             i = i + 1;
@@ -376,39 +418,25 @@ module clerk::market {
         abort E_AGENT
     }
 
-    fun find_agent_mut(agent_id: u64): &mut Agent acquires Registry {
-        let agents = &mut borrow_global_mut<Registry>(@clerk).agents;
-        let i = 0;
-        let n = vector::length(agents);
-        while (i < n) {
-            let agent = vector::borrow_mut(agents, i);
-            if (agent.id == agent_id) return agent;
-            i = i + 1;
-        };
-        abort E_AGENT
-    }
-
-    fun exists_job(job_id: u64): bool acquires Registry {
+    fun copy_job(job_id: u64): Job acquires Registry {
         let jobs = &borrow_global<Registry>(@clerk).jobs;
         let i = 0;
-        let n = vector::length(jobs);
-        while (i < n) {
+        while (i < vector::length(jobs)) {
+            let job = vector::borrow(jobs, i);
+            if (job.id == job_id) return *job;
+            i = i + 1;
+        };
+        abort E_JOB
+    }
+
+    fun job_exists(job_id: u64): bool acquires Registry {
+        let jobs = &borrow_global<Registry>(@clerk).jobs;
+        let i = 0;
+        while (i < vector::length(jobs)) {
             if (vector::borrow(jobs, i).id == job_id) return true;
             i = i + 1;
         };
         false
-    }
-
-    fun find_job_mut(job_id: u64): &mut Job acquires Registry {
-        let jobs = &mut borrow_global_mut<Registry>(@clerk).jobs;
-        let i = 0;
-        let n = vector::length(jobs);
-        while (i < n) {
-            let job = vector::borrow_mut(jobs, i);
-            if (job.id == job_id) return job;
-            i = i + 1;
-        };
-        abort E_JOB
     }
 
     #[view]
@@ -419,5 +447,118 @@ module clerk::market {
     #[view]
     public fun job_count(): u64 acquires Registry {
         vector::length(&borrow_global<Registry>(@clerk).jobs)
+    }
+
+    #[view]
+    public fun job_status(job_id: u64): u8 acquires Registry {
+        copy_job(job_id).status
+    }
+
+    #[test_only]
+    use supra_framework::account;
+    #[test_only]
+    use supra_framework::timestamp::Self as ts;
+
+    #[test_only]
+    fun start(secs: u64) {
+        let framework = account::create_account_for_test(@0x1);
+        ts::set_time_has_started_for_testing(&framework);
+        if (secs > 0) ts::update_global_time_for_test_secs(secs);
+        let publisher = account::create_account_for_test(@clerk);
+        init_module(&publisher);
+    }
+
+    #[test_only]
+    fun hash32(): vector<u8> {
+        let bytes = vector::empty<u8>();
+        let i = 0;
+        while (i < 32) {
+            vector::push_back(&mut bytes, 1);
+            i = i + 1;
+        };
+        bytes
+    }
+
+    #[test]
+    fun hire_and_complete() acquires Caps, Config, Registry, Treasury {
+        start(1_000);
+        let publisher = account::create_account_for_test(@clerk);
+        let user = account::create_account_for_test(@0xB0B);
+        coin::register<CLERK>(&user);
+        mint_to(&publisher, @0xB0B, 50_000_000_00);
+        register_agent(&publisher, b"Wallet Detective", b"reads", b"Research", 50_000_000_00, b"supra-address", b"READ ONLY");
+        hire(&user, 1, hash32());
+        assert!(job_status(1) == FUNDED, 0);
+        complete(&publisher, 1, hash32());
+        assert!(job_status(1) == COMPLETED, 0);
+        assert!(coin::balance<CLERK>(@clerk) == 50_000_000_00, 0);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 5, location = clerk::market)]
+    fun cannot_complete_twice() acquires Caps, Config, Registry, Treasury {
+        start(1_000);
+        let publisher = account::create_account_for_test(@clerk);
+        let user = account::create_account_for_test(@0xB0B);
+        coin::register<CLERK>(&user);
+        mint_to(&publisher, @0xB0B, 50_000_000_00);
+        register_agent(&publisher, b"Wallet Detective", b"reads", b"Research", 50_000_000_00, b"supra-address", b"READ ONLY");
+        hire(&user, 1, hash32());
+        complete(&publisher, 1, hash32());
+        complete(&publisher, 1, hash32());
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 6, location = clerk::market)]
+    fun stranger_cannot_complete() acquires Caps, Config, Registry, Treasury {
+        start(1_000);
+        let publisher = account::create_account_for_test(@clerk);
+        let user = account::create_account_for_test(@0xB0B);
+        let stranger = account::create_account_for_test(@0xBAD);
+        coin::register<CLERK>(&user);
+        mint_to(&publisher, @0xB0B, 50_000_000_00);
+        register_agent(&publisher, b"Wallet Detective", b"reads", b"Research", 50_000_000_00, b"supra-address", b"READ ONLY");
+        hire(&user, 1, hash32());
+        complete(&stranger, 1, hash32());
+    }
+
+    #[test]
+    fun fail_returns_the_escrow() acquires Caps, Config, Registry, Treasury {
+        start(1_000);
+        let publisher = account::create_account_for_test(@clerk);
+        let user = account::create_account_for_test(@0xB0B);
+        coin::register<CLERK>(&user);
+        mint_to(&publisher, @0xB0B, 100_000_000_00);
+        register_agent(&publisher, b"Risk", b"reads", b"Research", 100_000_000_00, b"package-module", b"READ ONLY");
+        hire(&user, 1, hash32());
+        fail(&publisher, 1);
+        assert!(coin::balance<CLERK>(@0xB0B) == 100_000_000_00, 0);
+    }
+
+    #[test]
+    fun refund_after_deadline() acquires Caps, Config, Registry, Treasury {
+        start(1_000);
+        let publisher = account::create_account_for_test(@clerk);
+        let user = account::create_account_for_test(@0xB0B);
+        coin::register<CLERK>(&user);
+        mint_to(&publisher, @0xB0B, 50_000_000_00);
+        register_agent(&publisher, b"Wallet Detective", b"reads", b"Research", 50_000_000_00, b"supra-address", b"READ ONLY");
+        hire(&user, 1, hash32());
+        ts::fast_forward_seconds(172800);
+        refund(&user, 1);
+        assert!(coin::balance<CLERK>(@0xB0B) == 50_000_000_00, 0);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 5, location = clerk::market)]
+    fun refund_is_early() acquires Caps, Config, Registry, Treasury {
+        start(1_000);
+        let publisher = account::create_account_for_test(@clerk);
+        let user = account::create_account_for_test(@0xB0B);
+        coin::register<CLERK>(&user);
+        mint_to(&publisher, @0xB0B, 50_000_000_00);
+        register_agent(&publisher, b"Wallet Detective", b"reads", b"Research", 50_000_000_00, b"supra-address", b"READ ONLY");
+        hire(&user, 1, hash32());
+        refund(&user, 1);
     }
 }
