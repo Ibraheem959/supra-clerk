@@ -11,7 +11,10 @@ export async function investigateWallet(chain, input) {
   const account = await chain.account(address);
   const balance = await chain.supraBalance(address);
   const resources = await chain.resources(address);
-  const txs = await chain.transactions(address, 25);
+  const history = chain.transactionPages
+    ? await chain.transactionPages(address, { limit: 100, pageSize: 25 })
+    : { transactions: await chain.transactions(address, 25), pages: 1, capped: false, sequence: account?.sequence_number ?? null };
+  const txs = history.transactions;
   const claims = [];
 
   if (!account) {
@@ -39,8 +42,8 @@ export async function investigateWallet(chain, input) {
   const types = resources.map((item) => item.type).filter(Boolean);
   claims.push({
     label: "VERIFIED ON-CHAIN",
-    claim: `${types.length} resource${types.length === 1 ? "" : "s"} returned on the first page.`,
-    evidence: types.slice(0, 8).join("\n") || "none",
+    claim: `${types.length} resources returned. The node sends the resource list in one response and rejected a second-page cursor, so this is the full list it gave, not a guessed total.`,
+    evidence: types.slice(0, 12).join("\n") || "none",
   });
 
   const calls = [];
@@ -68,10 +71,15 @@ export async function investigateWallet(chain, input) {
   } else {
     const first = txs[txs.length - 1];
     const last = txs[0];
+    const shown = txs.length;
+    const seq = history.sequence;
+    const reach = history.capped
+      ? `Showing ${shown}. Stopped at the safety limit. Account sequence is ${seq ?? "unavailable"}, so older transactions may exist.`
+      : `Showing ${shown} transactions across ${history.pages} page${history.pages === 1 ? "" : "s"}.${seq !== null ? ` Account sequence is ${seq}.` : ""}`;
     claims.push({
       label: "VERIFIED ON-CHAIN",
-      claim: `${txs.length} transactions on this page. Newest ${whenOf(last) || "time unavailable"}. Oldest on the page ${whenOf(first) || "time unavailable"}.`,
-      evidence: txs.slice(0, 5).map((tx) => `${tx.hash} ${functionOf(tx) || tx.txn_type}`).join("\n"),
+      claim: `${reach} Newest ${whenOf(last) || "time unavailable"}. Oldest fetched ${whenOf(first) || "time unavailable"}.`,
+      evidence: txs.slice(0, 8).map((tx) => `${tx.hash} ${functionOf(tx) || tx.txn_type}`).join("\n"),
     });
   }
 

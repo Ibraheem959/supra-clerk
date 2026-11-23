@@ -1,22 +1,9 @@
 # DEX integrations
 
-No swap adapter executes.
+No swap was executed. Details and the exact entries are in `TRADING.md`.
 
-## What was checked
-
-- Atmos app and guide: https://app.atmos.ag/ and https://knowledge.atmos.ag/user-guides/how-to-use-swap-aggregator. They do not publish a package address or entry function.
-- Dexlyn docs and the public Move interface: https://github.com/DexlynLabs/dexlyn_swap_interface. The docs do not pin one mainnet module for Clerk to call.
-- WARs DEX: https://dex.supwars.fun/. The swap page does not publish the package or the entry.
-- Twelve recent mainnet blocks were read through `https://rpc-mainnet.supra.com`. The user transactions in that window were racing and market-cap calls on `0x343de26e0c49513c9a18a48814786de4c990773fe515fc54c52b0006436dc8d`. No Atmos, Dexlyn, or WARs swap entry appeared. That sample is not a proof those DEXes are unused. It is a proof this build did not observe a swap it can safely name.
-
-Third-party bots that mention `atmos_entry::swap_exact_in_weighted_entry` or a Dexlyn `scripts::swap` were not treated as source of truth.
-
-## Status
-
-| Venue | Package verified from an official source | Quote | Executable swap in Clerk |
-|---|---|---|---|
-| Atmos | No | No | No |
-| Dexlyn | No | No | No |
-| WARs | No | No | No |
-
-`compareQuotes` says "best" only among venues that returned `status: "quoted"`. With none quoted, it refuses. `register_watch` stores a limit and does not call a DEX. A conditional buy is not automated: there is no pinned on-chain price and no pinned swap entry, so Automation cannot be aimed at one.
+| Venue | Package | Entry read from the chain or the official module page | Quote | Clerk swap |
+|---|---|---|---|---|
+| Atmos | `0xa4a4a31116e114bf3c4f4728914e6b43db73279a4421b0768993e07248fe2234` | `atmos_entry::swap_exact_in_weighted_entry` | No | No |
+| Dexlyn | testnet `0x4496a672452b0bf5eff5e1616ebfaf7695e14b02a12ed211dd4f28ac38a5d54c` | `scripts::swap` | No | No |
+| WARs | not found | named, not addressed | No | No |

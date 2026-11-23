@@ -46,8 +46,40 @@ export function createChain(rpc = supraRpc()) {
       return BigInt(row.data.coin.value);
     },
     async transactions(address, count = 20) {
-      const body = await readJson(`${base}/rpc/v3/accounts/${normalizeAddress(address)}/transactions?count=${count}`);
-      return Array.isArray(body) ? body : [];
+      const pages = await this.transactionPages(address, { limit: count, pageSize: Math.min(count, 25) });
+      return pages.transactions;
+    },
+    async transactionPages(address, { limit = 100, pageSize = 25 } = {}) {
+      const account = normalizeAddress(address);
+      const cap = Math.max(1, Math.min(limit, 500));
+      const size = Math.max(1, Math.min(pageSize, 25));
+      const transactions = [];
+      let cursor = null;
+      let pages = 0;
+      while (transactions.length < cap) {
+        const ask = Math.min(size, cap - transactions.length);
+        const query = cursor === null
+          ? `count=${ask}`
+          : `count=${ask}&start=${cursor}`;
+        const body = await readJson(`${base}/rpc/v3/accounts/${account}/transactions?${query}`);
+        const page = Array.isArray(body) ? body : [];
+        pages += 1;
+        if (!page.length) break;
+        transactions.push(...page);
+        const oldest = page[page.length - 1];
+        const sequence = Number(oldest?.header?.sequence_number);
+        if (!Number.isFinite(sequence) || sequence <= 0) break;
+        cursor = sequence - 1;
+        if (page.length < ask) break;
+      }
+      const info = await readJson(`${base}/rpc/v3/accounts/${account}`);
+      const sequence = info?.sequence_number !== undefined ? Number(info.sequence_number) : null;
+      return {
+        transactions,
+        pages,
+        capped: transactions.length >= cap,
+        sequence,
+      };
     },
     async transaction(hash) {
       return readJson(`${base}/rpc/v3/transactions/${hash}`);

@@ -8,7 +8,7 @@ import { researchProject } from "./agents/research.js";
 import { reviewContract } from "./agents/risk.js";
 import { writeContent } from "./agents/content.js";
 import { scanWallet } from "./agents/cleaner.js";
-import { tradePreview } from "./agents/trader.js";
+import { discoveredVenues, tradePreview } from "./agents/trader.js";
 import { readPortfolio } from "./agents/portfolio.js";
 import { normalizeAddress } from "./address.js";
 
@@ -65,7 +65,7 @@ async function runAgent(agent, input, prior) {
   if (agent.name === "Contract Risk") return reviewContract(reportChain, input);
   if (agent.name === "Content") return writeContent(prior);
   if (agent.name === "Wallet Cleaner") return scanWallet(reportChain, input, []);
-  if (agent.name === "Trading") return tradePreview({ pay: input, receive: "token", slippageBps: 100, quotes: unverifiedQuotes() });
+  if (agent.name === "Trading") return tradePreview({ pay: input, receive: "token", slippageBps: 100, quotes: discoveredVenues() });
   if (agent.name === "Portfolio") return readPortfolio(reportChain, input);
   return {
     title: agent.name,
@@ -75,13 +75,6 @@ async function runAgent(agent, input, prior) {
   };
 }
 
-function unverifiedQuotes() {
-  return [
-    { venue: "atmos", status: "not_verified", reason: "official entry not pinned" },
-    { venue: "dexlyn", status: "not_verified", reason: "official entry not pinned" },
-    { venue: "wars", status: "not_verified", reason: "official entry not pinned" },
-  ];
-}
 
 async function handle(req, res) {
   const url = new URL(req.url, "http://127.0.0.1");
@@ -222,7 +215,7 @@ async function handle(req, res) {
     }
     if (req.method === "POST" && url.pathname === "/api/trade/preview") {
       const body = await jsonBody(req);
-      return send(res, 200, tradePreview({ pay: body.pay, receive: body.receive, slippageBps: Number(body.slippageBps || 100), quotes: unverifiedQuotes() }));
+      return send(res, 200, tradePreview({ pay: body.pay, receive: body.receive, slippageBps: Number(body.slippageBps || 100), quotes: discoveredVenues() }));
     }
     if (req.method === "POST" && url.pathname === "/api/cleaner/scan") {
       const body = await jsonBody(req);

@@ -32,6 +32,9 @@ The mainnet development wallet was not used. Its address is on chain id 8 and it
 
 `settle_expired` is on the module. It was not registered. A registered task runs at the end of blocks, the registration fee is not refunded, and the only live job has about 48 hours left. Registering it now would pay gas to return immediately. Move tests already cover the refund after the deadline.
 
-## Tooling
+## Upgrade and the short job
 
-Supra CLI 0.5.0, tag `supra_node_v10.0.6`. Move tests: 6 passed. Framework rev used by the compiler cache: `3fecf50d0701f38064faa83c980aabe5c63309fe` from `Entropy-Foundation/aptos-core` `dev`.
+`set_review_secs` was added and published as a compatible upgrade: `0x7b125b5bddb9d92ed18194bd3d8424cd74796867b88a766519118be18a6a860c`. `upgrade_number` is 1. Policy remains 1 (compatible).
+
+Job 2 is a Content hire with a 90 second review. Automation task 6474 targets `settle_expired` for that job. Registration `0x7d539248bfa6160847e11258d819ca5495a79d9804f1674b336d685fb914d367`. Execution was not observed. Details are in `docs/AUTOMATION.md`.
+

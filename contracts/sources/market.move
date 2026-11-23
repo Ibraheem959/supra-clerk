@@ -153,6 +153,12 @@ module clerk::market {
         borrow_global_mut<Config>(@clerk).treasury = treasury;
     }
 
+    public entry fun set_review_secs(admin: &signer, secs: u64) acquires Config {
+        assert!(signer::address_of(admin) == borrow_global<Config>(@clerk).admin, E_ADMIN);
+        assert!(secs >= 30 && secs <= 604800, E_FEE);
+        borrow_global_mut<Config>(@clerk).review_secs = secs;
+    }
+
     public entry fun register_agent(
         creator: &signer,
         name: vector<u8>,
