@@ -126,6 +126,7 @@ export function App() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [balance, setBalance] = useState("");
+  const [gas, setGas] = useState(null);
   const [again, setAgain] = useState("");
 
   async function refresh(next = address) {
@@ -145,18 +146,62 @@ export function App() {
       .catch((reason) => setError(reason.message));
   }, []);
 
+  useEffect(() => {
+    const provider = wallet();
+    if (!provider?.on) return undefined;
+    const onAccounts = (accounts) => {
+      const next = accountFrom(accounts);
+      setAddress(next);
+      if (!next) {
+        setBalance("");
+        setGas(null);
+        setJobs([]);
+        return;
+      }
+      void refresh(next);
+    };
+    const onDisconnect = () => {
+      setAddress("");
+      setBalance("");
+      setGas(null);
+      setJobs([]);
+    };
+    provider.on("accountChanged", onAccounts);
+    provider.on("disconnect", onDisconnect);
+    return () => {
+      provider.off?.("accountChanged", onAccounts);
+      provider.off?.("disconnect", onDisconnect);
+    };
+  }, []);
+
   async function connect() {
     setError("");
     const provider = wallet();
-    if (!provider) {
+    if (!provider?.connect) {
       setError("StarKey is not installed in this browser.");
       return;
     }
-    await provider.connect();
-    await provider.changeNetwork?.({ chainId: "6" });
-    const next = accountFrom(await provider.account());
+    try { await provider.disconnect?.(); } catch { /* ask again even if it was already closed */ }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    let accounts;
+    try {
+      accounts = await provider.connect({ chainId: 6, multiple: false });
+    } catch (reason) {
+      const text = reason?.message || "";
+      if (/reject|denied|cancel|closed/i.test(text)) {
+        setError("StarKey was closed. No wallet was connected.");
+        return;
+      }
+      try { accounts = await provider.connect({ chainId: "6", multiple: false }); }
+      catch {
+        setError("StarKey did not open. Unlock the wallet and try again.");
+        return;
+      }
+    }
+    try { await provider.changeNetwork?.({ chainId: "6" }); } catch { /* the payment still targets testnet */ }
+    const next = accountFrom(accounts) || accountFrom(await provider.account?.());
     if (!next) {
-      setError("StarKey did not share an account.");
+      setError("Pick an account in StarKey. None was shared.");
       return;
     }
     setAddress(next);
