@@ -32,5 +32,6 @@ export async function researchProject(chain, input) {
       },
     ],
     unavailable: [],
+    source: "Read from the Supra testnet account and the contracts published on it.",
   };
 }

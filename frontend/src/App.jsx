@@ -24,13 +24,13 @@ function short(address = "") {
 }
 
 const BLURB = {
-  "Wallet Detective": "Balance and recent activity, in plain language.",
-  "Project Research": "What this account has published, and the SUPRA it holds.",
-  "Contract Risk": "Looks for public actions such as mint or upgrade.",
-  "Content": "Turns a finished report into a short post. It does not add facts.",
-  "Wallet Cleaner": "Only lists a burn if the mechanism is already proven.",
-  "Trading": "Checks whether a price exists. It will not invent one or send a swap.",
-  "Portfolio": "The coins on an account. No profit, no price guess.",
+  "Wallet Detective": "Total transactions, balance, and activity you can search. The total is every send, not just one page.",
+  "Project Research": "Contracts published on an account, and the SUPRA it holds.",
+  "Contract Risk": "Reads the public actions and flags mint, upgrade, or admin by name.",
+  "Content": "Writes from the wallet that paid, or from an address you paste. Every number comes from the account.",
+  "Wallet Cleaner": "Lists what is held and refuses to burn anything that has no proven redemption.",
+  "Trading": "Asks the known venues for a price. If none answer, it does not invent a swap.",
+  "Portfolio": "The coins stored on an account. No profit and no guessed price.",
 };
 
 function blurb(agent) {
@@ -424,15 +424,19 @@ function Home({ connected, onBrowse, onConnect }) {
 }
 
 function Report({ report }) {
+  const [query, setQuery] = useState("");
   const rows = Array.isArray(report.history) && report.history.length ? report.history : (report.lines || []);
   const holdings = Array.isArray(report.holdings) ? report.holdings : [];
+  const needle = query.trim().toLowerCase();
+  const shown = needle ? rows.filter((row) => `${row.when || ""} ${row.title || ""} ${row.detail || ""}`.toLowerCase().includes(needle)) : rows;
   return (
     <section className="report">
       <div>
         <p className="eyebrow">{report.title || "Result"}</p>
         <h1>{report.summary || report.title}</h1>
-        {report.subject ? <p className="subject">{short(report.subject)}</p> : null}
+        {report.subject && report.subject !== "empty" ? <p className="subject">{short(report.subject)}</p> : null}
       </div>
+      {report.post ? <p className="lede">{report.post}</p> : null}
       {holdings.length ? (
         <div className="balances">
           {holdings.map((item) => (
@@ -443,9 +447,14 @@ function Report({ report }) {
           ))}
         </div>
       ) : null}
-      {rows.length ? (
+      {rows.length > 3 ? (
+        <label>Search this activity
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="transaction, coin, or date" />
+        </label>
+      ) : null}
+      {shown.length ? (
         <ol className="timeline">
-          {rows.map((row, index) => (
+          {shown.map((row, index) => (
             <li key={index}>
               <time>{row.when || "Result"}</time>
               <strong>{row.title}</strong>
@@ -453,12 +462,13 @@ function Report({ report }) {
             </li>
           ))}
         </ol>
-      ) : (
+      ) : needle ? <p className="muted">Nothing on this page matches that search. The totals above stay as read.</p> : (
         <div className="stack">
           {(report.claims || []).slice(0, 4).map((claim, index) => <p key={index}>{claim.claim}</p>)}
         </div>
       )}
       {report.watch ? <p className="note">{report.watch}</p> : null}
+      {report.source ? <p className="muted">{report.source}</p> : null}
     </section>
   );
 }

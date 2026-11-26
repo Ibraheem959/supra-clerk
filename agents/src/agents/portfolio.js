@@ -45,5 +45,6 @@ export async function readPortfolio(chain, input) {
       evidence: "",
     }],
     unavailable: [],
+    source: "Read from coin stores on this Supra testnet account. Prices are not looked up.",
   };
 }

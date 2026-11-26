@@ -9,7 +9,7 @@ import { createLedger } from "./rules.js";
 import { investigateWallet } from "./agents/detective.js";
 import { researchProject } from "./agents/research.js";
 import { reviewContract } from "./agents/risk.js";
-import { writeContent } from "./agents/content.js";
+import { writeContent, writeAbout } from "./agents/content.js";
 import { scanWallet } from "./agents/cleaner.js";
 import { discoveredVenues, parseIntent, tradePreview } from "./agents/trader.js";
 import { readPortfolio } from "./agents/portfolio.js";
@@ -79,23 +79,21 @@ function publicJob(job) {
   };
 }
 
-async function runAgent(agent, input, prior) {
+async function runAgent(agent, input, sender) {
   const chain = market ? deskChain : reportChain;
   if (agent.name === "Wallet Detective") return investigateWallet(chain, input);
-  if (agent.name === "Project Research") return researchProject(chain, input);
-  if (agent.name === "Contract Risk") return reviewContract(chain, input);
+  if (agent.name === "Project Research") return researchProject(chain, input || sender);
+  if (agent.name === "Contract Risk") return reviewContract(chain, input || sender);
   if (agent.name === "Content") {
-    const text = String(input || "");
-    const found = text.match(/0x[0-9a-fA-F]{1,64}/);
-    const source = found ? await investigateWallet(chain, found[0]) : prior;
-    return writeContent(source);
+    if (/0x[0-9a-fA-F]{8,}/.test(String(input || "")) || sender) return writeAbout(chain, input, sender);
+    return writeContent(null);
   }
-  if (agent.name === "Wallet Cleaner") return scanWallet(chain, input, []);
+  if (agent.name === "Wallet Cleaner") return scanWallet(chain, input || sender, []);
   if (agent.name === "Trading") {
     const intent = parseIntent(input);
     return tradePreview({ ...intent, slippageBps: 100, quotes: discoveredVenues() });
   }
-  if (agent.name === "Portfolio") return readPortfolio(chain, input);
+  if (agent.name === "Portfolio") return readPortfolio(chain, input || sender);
   return {
     title: agent.name,
     summary: "This agent has no reader yet",
@@ -208,7 +206,7 @@ async function handle(req, res) {
       }
       let report;
       try {
-        report = await runAgent(checked.agent, body.input);
+        report = await runAgent(checked.agent, body.input, checked.sender);
       } catch {
         report = {
           title: checked.agent.name,
@@ -229,7 +227,7 @@ async function handle(req, res) {
       if (row.inputHash !== hashText(input)) return send(res, 400, { error: "That is not the request that was paid for." });
       const agent = (await readDesk(deskChain, market)).agents.find((item) => item.id === row.agentId);
       if (!agent) return send(res, 404, { error: "That agent is not on the desk." });
-      const report = await runAgent(agent, input);
+      const report = await runAgent(agent, input, row.user);
       remember(id, { report, input });
       return send(res, 200, { job: publicJob(row), report });
     }

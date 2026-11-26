@@ -74,5 +74,6 @@ export function tradePreview({ pay, receive, slippageBps = 100, quotes }) {
       },
     ],
     unavailable: [],
+    source: "Atmos is not deployed on this testnet. Dexlyn's swap entry was read and did not return a pool price. WARs has no published package. Nothing was swapped.",
   };
 }

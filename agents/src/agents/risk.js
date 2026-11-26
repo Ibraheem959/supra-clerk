@@ -80,5 +80,6 @@ export async function reviewContract(chain, input) {
     lines: claims.slice(0, 6).map((item) => ({ title: item.claim, detail: "" })),
     claims,
     unavailable: [],
+    source: "Read from the published contract on this Supra testnet account. A matching name is a hint, not proof.",
   };
 }
