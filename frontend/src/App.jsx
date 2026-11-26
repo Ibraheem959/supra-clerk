@@ -219,6 +219,26 @@ export function App() {
     setPage("home");
   }
 
+  async function look(agent) {
+    setError("");
+    setNotice("");
+    if (!input.trim() && !address) return setError("Paste an address or connect StarKey.");
+    setBusy(true);
+    try {
+      const body = await api("/api/agents/run", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agent: agent.name, input: input.trim() || address, sender: address }),
+      });
+      setOpenJob({ report: body.report, job: { status: "Look" } });
+      setPage("job");
+    } catch (reason) {
+      setError(reason.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function hire(agent) {
     setError("");
     setNotice("");
@@ -297,13 +317,21 @@ export function App() {
             <span className="eyebrow">{clerk(picked.price)}</span>
             <h1>{picked.name}</h1>
             <p>{blurb(picked)}</p>
-            <p>StarKey will ask you to approve this payment. The result appears after the network accepts it.</p>
+            <p>Ask a question first. That look is free and does not move CLERK. Paying records the same job on testnet.</p>
             <label>What should it look at?
               <textarea rows={4} value={input} onChange={(event) => setInput(event.target.value)} placeholder={placeholder(picked.inputType)} />
             </label>
-            <button className="pay" type="button" disabled={busy} onClick={() => void hire(picked)}>
-              {busy ? "Waiting for StarKey" : `Pay ${clerk(picked.price)}`}
-            </button>
+            <div className="actions">
+              {["How many sends are recorded?", "How much has entered and left?", "Has this wallet used automation?"].map((prompt) => (
+                <button className="ghost" key={prompt} type="button" onClick={() => setInput(address ? `${address} ${prompt}` : prompt)}>{prompt}</button>
+              ))}
+            </div>
+            <div className="actions">
+              <button className="ghost" type="button" disabled={busy} onClick={() => void look(picked)}>Look first</button>
+              <button className="pay" type="button" disabled={busy} onClick={() => void hire(picked)}>
+                {busy ? "Waiting for StarKey" : `Pay ${clerk(picked.price)}`}
+              </button>
+            </div>
             <p className="muted">Your balance: {balance ? clerk(balance) : "connect a wallet"} · Network fee: {supra(gas)}</p>
             {!address ? <button type="button" className="ghost" onClick={() => void connect()}>Connect StarKey</button> : null}
           </section>
@@ -414,7 +442,7 @@ function Home({ connected, onBrowse, onConnect }) {
     <section className="hero">
       <p className="eyebrow">Testnet</p>
       <h1>Pay an agent. Get the job.</h1>
-      <p className="lede">Wallet reports, contract checks, and cleanups. CLERK pays for the work. It does not earn yield.</p>
+      <p className="lede">Wallet reports, contract checks, and cleanups. Each number comes from Supra, with the pages that were actually read.</p>
       <div className="actions">
         <button className="pay" type="button" onClick={onBrowse}>See the agents</button>
         {connected ? null : <button className="ghost" type="button" onClick={onConnect}>Connect StarKey</button>}
@@ -469,6 +497,13 @@ function Report({ report }) {
       )}
       {report.watch ? <p className="note">{report.watch}</p> : null}
       {report.source ? <p className="muted">{report.source}</p> : null}
+      {report.evidence ? (
+        <div className="note">
+          <strong>{report.evidence.confidence || "NOT VERIFIED"}</strong>
+          <span> {report.evidence.network}. {report.evidence.records ?? 0} records across {report.evidence.pages ?? 0} pages. {report.evidence.complete ? "The feed ended." : "The feed did not finish."}</span>
+          {Array.isArray(report.evidence.tools) && report.evidence.tools.length ? <span> Tools: {report.evidence.tools.join(", ")}.</span> : null}
+        </div>
+      ) : null}
     </section>
   );
 }

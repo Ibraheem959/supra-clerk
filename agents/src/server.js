@@ -151,6 +151,15 @@ async function handle(req, res) {
       if (!response.ok) return send(res, 400, { error: "The Supra faucet did not send SUPRA. Try again in a little while." });
       return send(res, 200, { ok: true, detail: text.slice(0, 180) });
     }
+    if (req.method === "POST" && url.pathname === "/api/agents/run") {
+      const body = await jsonBody(req);
+      const name = String(body.agent || "");
+      const desk = market ? await readDesk(deskChain, market) : { agents: ledger.agents() };
+      const agent = desk.agents.find((item) => item.name === name || String(item.id) === name);
+      if (!agent) return send(res, 404, { error: "That agent is not registered." });
+      const report = await runAgent(agent, body.input || "", body.sender || "");
+      return send(res, 200, { agent: agent.name, paid: false, report });
+    }
     if (req.method === "GET" && url.pathname === "/api/agents") {
       if (market) return send(res, 200, (await readDesk(deskChain, market)).agents.map(publicAgent));
       return send(res, 200, ledger.agents().map(publicAgent));

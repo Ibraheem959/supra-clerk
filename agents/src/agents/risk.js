@@ -18,7 +18,7 @@ export function reviewAbi(moduleName, abi) {
     if (!flag) continue;
     hits.push({
       label: "RISK SIGNAL",
-      claim: `${moduleName} can ${flag.name} (${fn.name}).`,
+      claim: `${moduleName}::${fn.name} is a public ${flag.name}. Calling it needs a signer. That is not proof of an exploit.`,
       evidence: "",
     });
   }

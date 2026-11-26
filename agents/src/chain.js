@@ -1,4 +1,5 @@
 import { normalizeAddress } from "./address.js";
+import { readFeed } from "./supra/feed.js";
 
 const QUANTS = 100_000_000n;
 
@@ -95,6 +96,43 @@ export function createChain(rpc = supraRpc()) {
     async modules(address) {
       const body = await readJson(`${base}/rpc/v3/accounts/${normalizeAddress(address)}/modules`);
       return Array.isArray(body) ? body : [];
+    },
+    async coinTransactions(address, options = {}) {
+      const account = normalizeAddress(address);
+      return readFeed(async (start) => {
+        const query = start ? `count=25&start=${encodeURIComponent(start)}` : "count=25";
+        const response = await fetch(`${base}/rpc/v3/accounts/${account}/coin_transactions?${query}`, {
+          headers: { "user-agent": "clerk/1.0", accept: "application/json" },
+        });
+        if (response.status === 404) return { body: [], cursor: "" };
+        if (!response.ok) throw new Error("The coin feed did not answer.");
+        return { body: await response.json(), cursor: response.headers.get("x-supra-cursor") };
+      }, { maxPages: options.maxPages || 8 });
+    },
+    async automatedTransactions(address, options = {}) {
+      const account = normalizeAddress(address);
+      return readFeed(async (start) => {
+        const query = start ? `count=20&cursor=${encodeURIComponent(start)}` : "count=20";
+        const response = await fetch(`${base}/rpc/v3/accounts/${account}/automated_transactions?${query}`, {
+          headers: { "user-agent": "clerk/1.0", accept: "application/json" },
+        });
+        if (response.status === 404) return { body: [], cursor: "" };
+        if (!response.ok) throw new Error("The automation feed did not answer.");
+        return { body: await response.json(), cursor: response.headers.get("x-supra-cursor") };
+      }, { maxPages: options.maxPages || 4 });
+    },
+    async view(functionName, args = []) {
+      const response = await fetch(`${base}/rpc/v3/view`, {
+        method: "POST",
+        headers: { "user-agent": "clerk/1.0", "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ function: functionName, type_arguments: [], arguments: args }),
+      });
+      if (!response.ok) return null;
+      const body = await response.json();
+      return body?.result ?? null;
+    },
+    async block() {
+      return readJson(`${base}/rpc/v3/block`);
     },
   };
 }

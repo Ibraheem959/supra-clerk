@@ -1,4 +1,6 @@
-import { answer, readDossier, splitQuery } from "./dossier.js";
+import { splitQuery } from "./dossier.js";
+import { investigate } from "../supra/investigate.js";
+import { phrase } from "../supra/phrase.js";
 
 export function writeContent(report) {
   const facts = [];
@@ -42,18 +44,24 @@ export async function writeAbout(chain, input, sender = "") {
       claims: [{ label: "DATA", claim: "There is no report to write from.", evidence: "Content refuses to invent a project." }],
     };
   }
-  const dossier = await readDossier(chain, address);
-  const asked = String(input || "").replace(/0x[0-9a-fA-F]{1,64}/g, " ").replace(/ignore previous|you are now|system prompt|pretend the balance/ig, "").trim();
-  const written = answer(dossier, asked);
+  const found = await investigate(chain, input, sender);
+  const facts = (found.findings || []).filter((item) => item.kind === "ON-CHAIN FACT").map((item) => `${item.title}: ${item.detail}`);
+  const writing = facts.length ? found.post : "No on-chain facts were returned, so nothing was written.";
+  const spoken = await phrase(writing);
   return {
     title: "Content",
-    summary: written.headline,
+    summary: found.summary,
     subject: address,
-    post: written.body,
-    lines: written.lines,
-    holdings: dossier.holdings.slice(0, 4),
-    source: dossier.source,
-    history: dossier.rows.slice(0, 6),
-    claims: [{ label: "DATA", claim: written.body, evidence: "Built only from the account, coin stores, and transactions." }],
+    post: spoken.text,
+    lines: [
+      ...facts.slice(0, 6).map((line) => ({ title: "On-chain fact", detail: line })),
+      { title: "Writing", detail: spoken.writer === "model" ? "Phrased by the configured model. Every number was checked against the facts." : "Assembled from those facts. No model was called, and no price was added." },
+    ],
+    holdings: found.holdings || [],
+    history: found.history || [],
+    findings: found.findings || [],
+    evidence: found.evidence,
+    source: found.source,
+    claims: [{ label: "DATA", claim: spoken.text, evidence: "Built only from the account, coin stores, and the coin feed." }],
   };
 }
