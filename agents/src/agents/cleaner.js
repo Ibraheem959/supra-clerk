@@ -75,6 +75,15 @@ export async function scanWallet(chain, input, registry = []) {
     claims,
     actions: result.offers,
     unavailable: [],
+    evidence: {
+      network: "Supra testnet",
+      source: "Account resources",
+      tools: ["resources"],
+      pages: 1,
+      records: resources.length,
+      complete: true,
+      confidence: "VERIFIED",
+    },
     source: "Read from resources on this Supra testnet account. A burn is offered only when a redemption is already listed. None are listed.",
   };
 }

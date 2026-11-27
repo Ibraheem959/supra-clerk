@@ -74,6 +74,15 @@ export function tradePreview({ pay, receive, slippageBps = 100, quotes }) {
       },
     ],
     unavailable: [],
+    evidence: {
+      network: "SupraMVM Testnet",
+      source: "Dexlyn module and Atmos account",
+      tools: ["modules", "resources"],
+      pages: 1,
+      records: 0,
+      complete: true,
+      confidence: "NOT VERIFIED",
+    },
     source: "Atmos is not deployed on this testnet. Dexlyn's swap entry was read and did not return a pool price. WARs has no published package. Nothing was swapped.",
   };
 }
