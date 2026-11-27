@@ -27,11 +27,25 @@ const BLURB = {
   "Wallet Detective": "Total transactions, balance, and activity you can search. The total is every send, not just one page.",
   "Project Research": "Contracts published on an account, and the SUPRA it holds.",
   "Contract Risk": "Reads the public actions and flags mint, upgrade, or admin by name.",
-  "Content": "Writes from the wallet that paid, or from an address you paste. Every number comes from the account.",
+  "Content": "Writes a post from a wallet or package you name. The connected wallet is used only if you say my wallet.",
   "Wallet Cleaner": "Lists what is held and refuses to burn anything that has no proven redemption.",
   "Trading": "Asks the known venues for a price. If none answer, it does not invent a swap.",
   "Portfolio": "The coins stored on an account. No profit and no guessed price.",
 };
+
+const PROMPTS = {
+  "Wallet Detective": ["How many sends are recorded?", "How much SUPRA has entered and left?", "Which contracts does it call?"],
+  "Project Research": ["What does this package actually do?", "Which functions can a user call?", "What happened on it recently?"],
+  "Contract Risk": ["Which public actions need a signer?", "Is there a mint, and who can call it?", "Separate signals from exploits."],
+  "Content": ["Write a short factual post about this package.", "Explain this contract for a beginner.", "Write a thread from the verified facts only."],
+  "Wallet Cleaner": ["Which assets have no verified redemption?", "List candidates. Do not burn anything."],
+  "Trading": ["10 SUPRA for CLERK", "Quote this pair. Do not swap."],
+  "Portfolio": ["What does this account hold now?", "What moved in the pages you can read?"],
+};
+
+function promptsFor(agent) {
+  return PROMPTS[agent?.name] || ["What should this look at?"];
+}
 
 function blurb(agent) {
   return BLURB[agent.name] || agent.description;
@@ -48,7 +62,7 @@ function jobLabel(status) {
 function placeholder(type) {
   if (type === "package-module") return "A contract address, or address::module";
   if (type === "trade-intent") return "For example, 10 SUPRA for CLERK";
-  if (type === "report") return "A wallet address to write from";
+  if (type === "report") return "Paste an address, then say what to write. Say my wallet only for the connected one.";
   if (type === "supra-address") return "Wallet address, starting with 0x";
   return "Tell the agent what to look at";
 }
@@ -222,13 +236,13 @@ export function App() {
   async function look(agent) {
     setError("");
     setNotice("");
-    if (!input.trim() && !address) return setError("Paste an address or connect StarKey.");
+    if (!input.trim()) return setError("Write what it should look at. Say my wallet only if you mean the connected one.");
     setBusy(true);
     try {
       const body = await api("/api/agents/run", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agent: agent.name, input: input.trim() || address, sender: address }),
+        body: JSON.stringify({ agent: agent.name, input: input.trim(), sender: address }),
       });
       setOpenJob({ report: body.report, job: { status: "Look" } });
       setPage("job");
@@ -322,9 +336,12 @@ export function App() {
               <textarea rows={4} value={input} onChange={(event) => setInput(event.target.value)} placeholder={placeholder(picked.inputType)} />
             </label>
             <div className="actions">
-              {["How many sends are recorded?", "How much has entered and left?", "Has this wallet used automation?"].map((prompt) => (
-                <button className="ghost" key={prompt} type="button" onClick={() => setInput(address ? `${address} ${prompt}` : prompt)}>{prompt}</button>
+              {promptsFor(picked).map((prompt) => (
+                <button className="ghost" key={prompt} type="button" onClick={() => setInput(prompt)}>{prompt}</button>
               ))}
+              {address && picked.name !== "Trading" && picked.name !== "Project Research" && picked.name !== "Contract Risk" ? (
+                <button className="ghost" type="button" onClick={() => setInput((value) => /\bmy wallet\b/i.test(value) ? value : `my wallet ${value}`.trim())}>Use my wallet</button>
+              ) : null}
             </div>
             <div className="actions">
               <button className="ghost" type="button" disabled={busy} onClick={() => void look(picked)}>Look first</button>
@@ -453,6 +470,30 @@ function Home({ connected, onBrowse, onConnect }) {
 
 function Report({ report }) {
   const [query, setQuery] = useState("");
+  if (report.layout === "post") {
+    return (
+      <section className="report">
+        <div>
+          <p className="eyebrow">{report.title || "Post"}</p>
+          <h1>{report.summary || "Post"}</h1>
+          {report.subject && report.subject !== "empty" ? <p className="subject">{short(report.subject)}</p> : null}
+        </div>
+        {report.post ? <p className="lede">{report.post}</p> : null}
+        {(report.lines || []).length ? (
+          <div className="stack">
+            {report.lines.map((line, index) => <p key={index}><strong>{line.title}.</strong> {line.detail}</p>)}
+          </div>
+        ) : null}
+        {report.source ? <p className="muted">{report.source}</p> : null}
+        {report.evidence ? (
+          <div className="note">
+            <strong>{report.evidence.confidence || "NOT VERIFIED"}</strong>
+            <span> {report.evidence.network}. {report.evidence.records ?? 0} records across {report.evidence.pages ?? 0} pages.</span>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
   const rows = Array.isArray(report.history) && report.history.length ? report.history : (report.lines || []);
   const holdings = Array.isArray(report.holdings) ? report.holdings : [];
   const needle = query.trim().toLowerCase();
@@ -476,7 +517,7 @@ function Report({ report }) {
         </div>
       ) : null}
       {rows.length > 3 ? (
-        <label>Search this activity
+        <label>Search this result
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="transaction, coin, or date" />
         </label>
       ) : null}

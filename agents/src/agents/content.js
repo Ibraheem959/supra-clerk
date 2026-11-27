@@ -37,44 +37,61 @@ export function writeContent(report) {
 }
 
 export async function writeAbout(chain, input, sender = "") {
-  const { address } = splitQuery(input, sender);
+  const ask = String(input || "");
+  const self = /\b(my wallet|this wallet|connected wallet)\b/i.test(ask);
+  const { address } = splitQuery(ask, self ? sender : "");
   if (!address) {
     return {
       title: "Content",
-      summary: "Name a wallet",
-      post: "Content writes only from a Supra account. Paste an address, or connect the wallet you want described.",
-      claims: [{ label: "DATA", claim: "There is no report to write from.", evidence: "Content refuses to invent a project." }],
+      summary: "Name what to write about",
+      layout: "post",
+      post: "Paste a wallet or a package address. The connected wallet is not used unless you write my wallet.",
+      history: [],
+      holdings: [],
+      lines: [],
+      claims: [{ label: "DATA", claim: "No subject was given, so nothing was written.", evidence: "" }],
     };
   }
-  const found = await investigate(chain, input, sender);
-  const facts = (found.findings || []).filter((item) => item.kind === "ON-CHAIN FACT").map((item) => `${item.title}: ${item.detail}`);
+  const packageAsk = /project|package|module|contract|what does|function/i.test(ask);
+  const riskAsk = /risk|safe|mint|upgrade|exploit/i.test(ask);
   const extra = [];
-  const ask = String(input || "");
-  if (/project|package|module|what does/i.test(ask)) {
-    const project = await researchProject(chain, address);
-    extra.push(`Published modules: ${project.summary}`);
+  const facts = [];
+  let evidence = null;
+  if (packageAsk || riskAsk) {
+    if (packageAsk) {
+      const project = await researchProject(chain, address);
+      extra.push(`Published modules: ${project.summary}`);
+      for (const line of (project.lines || []).slice(0, 6)) facts.push(`${line.title}: ${line.detail}`);
+      evidence = project.evidence;
+    }
+    if (riskAsk) {
+      const risk = await reviewContract(chain, address);
+      for (const line of (risk.lines || []).slice(0, 4)) extra.push([line.title, line.detail].filter(Boolean).join(": "));
+      evidence = evidence || risk.evidence || null;
+    }
+  } else {
+    const found = await investigate(chain, ask, self ? sender : "");
+    extra.push(found.post || "");
+    for (const item of found.findings || []) {
+      if (item.kind === "ON-CHAIN FACT") facts.push(`${item.title}: ${item.detail}`);
+    }
+    evidence = found.evidence || null;
   }
-  if (/risk|safe|mint|upgrade/i.test(ask)) {
-    const risk = await reviewContract(chain, address);
-    for (const line of (risk.lines || []).slice(0, 3)) extra.push(line.title || line.detail || "");
-  }
-  const writing = [found.post, ...extra, ...facts.filter((line) => line && !found.post.includes(line)).slice(0, 3)].filter(Boolean).join(" ");
-  const spoken = await phrase(writing);
+  const writing = [...extra, ...facts].filter(Boolean).join(" ");
+  const spoken = await phrase(writing || "No on-chain facts were returned, so nothing was written.");
+  const headline = spoken.text.split(/(?<=\.)\s/)[0].slice(0, 180);
   return {
     title: "Content",
-    summary: found.summary,
+    summary: headline || "Factual post",
     subject: address,
+    layout: "post",
     post: spoken.text,
-    lines: [
-      ...extra.map((line) => ({ title: "From the other reader", detail: line })),
-      ...facts.slice(0, 4).map((line) => ({ title: "On-chain fact", detail: line })),
-      { title: "Writing", detail: spoken.writer === "model" ? `Phrased by ${spoken.model}. Every number was checked against the facts.` : (spoken.reason || "Assembled from those facts. No model was called, and no price was added.") },
-    ],
-    holdings: found.holdings || [],
-    history: found.history || [],
-    findings: found.findings || [],
-    evidence: found.evidence,
-    source: found.source,
-    claims: [{ label: "DATA", claim: spoken.text, evidence: "Built only from the account, coin stores, and the coin feed." }],
+    lines: [...extra, ...facts].filter(Boolean).slice(0, 6).map((line) => ({ title: "Fact used", detail: line })),
+    holdings: [],
+    history: [],
+    findings: [],
+    evidence,
+    source: "Written from the Supra reads listed here. The connected wallet is used only when the request says my wallet.",
+    claims: [{ label: "DATA", claim: spoken.text, evidence: "Built only from those reads." }],
   };
 }

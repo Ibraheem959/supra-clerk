@@ -87,7 +87,7 @@ export async function investigate(chain, input, fallback = "", options = {}) {
     return {
       title: "Investigation",
       summary: "Name a wallet",
-      post: "Paste a Supra address, or connect the wallet to investigate.",
+      post: "Paste a Supra address. The connected wallet is used only if the request says my wallet.",
       findings: [],
       evidence: { ...network, tools: [], pages: 0, records: 0, complete: false, confidence: "INSUFFICIENT DATA", hashes: [] },
       claims: [{ label: "DATA", claim: "No address was given.", evidence: "" }],

@@ -30,6 +30,27 @@ test("a flow question selects the coin feed and does not invent a price tool", (
   assert.equal(tools.includes("price"), false);
 });
 
+test("content ignores the payer unless the request says my wallet", async () => {
+  let seen = "";
+  const chain = {
+    rpc: "https://rpc-testnet.supra.com",
+    account: async (address) => { seen = address; return { sequence_number: "3" }; },
+    supraBalance: async () => 100n,
+    resources: async () => [],
+    transactions: async () => [],
+    modules: async () => [],
+  };
+  const ignored = await writeAbout(chain, "Write a factual post about this package", "0xabc");
+  assert.equal(seen, "");
+  assert.match(ignored.post, /Paste a wallet or a package/);
+  assert.deepEqual(ignored.history, []);
+  const used = await writeAbout(chain, "my wallet write a short post", "0x1");
+  assert.equal(used.layout, "post");
+  assert.equal(used.subject, "0x0000000000000000000000000000000000000000000000000000000000000001");
+  assert.deepEqual(used.history, []);
+  assert.deepEqual(used.holdings, []);
+});
+
 test("a project question makes content read the published modules", async () => {
   const chain = {
     rpc: "https://rpc-testnet.supra.com",
@@ -42,4 +63,6 @@ test("a project question makes content read the published modules", async () => 
   const written = await writeAbout(chain, "0x1 what does this package do");
   assert.match(written.post, /1 modules, 1 entry functions/);
   assert.equal(written.post.includes("1000000"), false);
+  assert.equal(written.layout, "post");
+  assert.deepEqual(written.history, []);
 });

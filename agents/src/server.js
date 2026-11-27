@@ -79,21 +79,56 @@ function publicJob(job) {
   };
 }
 
+function hasAddress(input) {
+  return /0x[0-9a-fA-F]{8,}/.test(String(input || ""));
+}
+
+function namedSelf(input) {
+  return /\b(my wallet|this wallet|connected wallet)\b/i.test(String(input || ""));
+}
+
+function missingSubject(title, detail) {
+  return {
+    title,
+    summary: "Name the account",
+    post: detail,
+    history: [],
+    holdings: [],
+    lines: [{ title: "Missing", detail }],
+    claims: [{ label: "DATA", claim: detail, evidence: "" }],
+    unavailable: [],
+  };
+}
+
 async function runAgent(agent, input, sender) {
   const chain = market ? deskChain : reportChain;
-  if (agent.name === "Wallet Detective") return investigateWallet(chain, input);
-  if (agent.name === "Project Research") return researchProject(chain, input || sender);
-  if (agent.name === "Contract Risk") return reviewContract(chain, input || sender);
-  if (agent.name === "Content") {
-    if (/0x[0-9a-fA-F]{8,}/.test(String(input || "")) || sender) return writeAbout(chain, input, sender);
-    return writeContent(null);
+  const text = String(input || "").trim();
+  const subject = namedSelf(text) && sender ? `${sender} ${text}` : text;
+  if (agent.name === "Wallet Detective") {
+    if (!hasAddress(subject)) return missingSubject("Wallet investigation", "Paste the wallet to investigate. The connected wallet is used only if you write my wallet.");
+    return investigateWallet(chain, subject);
   }
-  if (agent.name === "Wallet Cleaner") return scanWallet(chain, input || sender, []);
+  if (agent.name === "Project Research") {
+    if (!hasAddress(text)) return missingSubject("Project", "Paste the package address. The connected wallet is not treated as the project.");
+    return researchProject(chain, text);
+  }
+  if (agent.name === "Contract Risk") {
+    if (!hasAddress(text)) return missingSubject("Risk", "Paste the contract address. The connected wallet is not reviewed unless you paste it.");
+    return reviewContract(chain, text);
+  }
+  if (agent.name === "Content") return writeAbout(chain, text, sender);
+  if (agent.name === "Wallet Cleaner") {
+    if (!hasAddress(subject)) return missingSubject("Cleanup", "Paste the wallet to scan. Nothing is burned. The connected wallet is used only if you write my wallet.");
+    return scanWallet(chain, subject, []);
+  }
   if (agent.name === "Trading") {
-    const intent = parseIntent(input);
+    const intent = parseIntent(text);
     return tradePreview({ ...intent, slippageBps: 100, quotes: discoveredVenues() });
   }
-  if (agent.name === "Portfolio") return readPortfolio(chain, input || sender);
+  if (agent.name === "Portfolio") {
+    if (!hasAddress(subject)) return missingSubject("Portfolio", "Paste the account. The connected wallet is used only if you write my wallet.");
+    return readPortfolio(chain, subject);
+  }
   return {
     title: agent.name,
     summary: "This agent has no reader yet",
