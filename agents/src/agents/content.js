@@ -1,6 +1,8 @@
 import { splitQuery } from "./dossier.js";
 import { investigate } from "../supra/investigate.js";
 import { phrase } from "../supra/phrase.js";
+import { researchProject } from "./research.js";
+import { reviewContract } from "./risk.js";
 
 export function writeContent(report) {
   const facts = [];
@@ -46,7 +48,17 @@ export async function writeAbout(chain, input, sender = "") {
   }
   const found = await investigate(chain, input, sender);
   const facts = (found.findings || []).filter((item) => item.kind === "ON-CHAIN FACT").map((item) => `${item.title}: ${item.detail}`);
-  const writing = facts.length ? found.post : "No on-chain facts were returned, so nothing was written.";
+  const extra = [];
+  const ask = String(input || "");
+  if (/project|package|module|what does/i.test(ask)) {
+    const project = await researchProject(chain, address);
+    extra.push(`Published modules: ${project.summary}`);
+  }
+  if (/risk|safe|mint|upgrade/i.test(ask)) {
+    const risk = await reviewContract(chain, address);
+    for (const line of (risk.lines || []).slice(0, 3)) extra.push(line.title || line.detail || "");
+  }
+  const writing = [found.post, ...extra, ...facts.filter((line) => line && !found.post.includes(line)).slice(0, 3)].filter(Boolean).join(" ");
   const spoken = await phrase(writing);
   return {
     title: "Content",
@@ -54,7 +66,8 @@ export async function writeAbout(chain, input, sender = "") {
     subject: address,
     post: spoken.text,
     lines: [
-      ...facts.slice(0, 6).map((line) => ({ title: "On-chain fact", detail: line })),
+      ...extra.map((line) => ({ title: "From the other reader", detail: line })),
+      ...facts.slice(0, 4).map((line) => ({ title: "On-chain fact", detail: line })),
       { title: "Writing", detail: spoken.writer === "model" ? "Phrased by the configured model. Every number was checked against the facts." : "Assembled from those facts. No model was called, and no price was added." },
     ],
     holdings: found.holdings || [],

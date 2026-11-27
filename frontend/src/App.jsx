@@ -502,6 +502,9 @@ function Report({ report }) {
           <strong>{report.evidence.confidence || "NOT VERIFIED"}</strong>
           <span> {report.evidence.network}. {report.evidence.records ?? 0} records across {report.evidence.pages ?? 0} pages. {report.evidence.complete ? "The feed ended." : "The feed did not finish."}</span>
           {Array.isArray(report.evidence.tools) && report.evidence.tools.length ? <span> Tools: {report.evidence.tools.join(", ")}.</span> : null}
+          {Array.isArray(report.evidence.links) && report.evidence.links.length ? (
+            <span> {report.evidence.links.slice(0, 3).map((link) => <a key={link} href={link}>Transaction</a>)}</span>
+          ) : null}
         </div>
       ) : null}
     </section>

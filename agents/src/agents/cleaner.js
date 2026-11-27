@@ -71,7 +71,7 @@ export async function scanWallet(chain, input, registry = []) {
     holdings,
     lines: result.offers.length
       ? result.offers.map((offer) => ({ title: coinName(offer.type), detail: offer.expected || "Listed redemption" }))
-      : [{ title: "No burn offered", detail: "Nothing here can be turned back into SUPRA." }],
+      : holdings.map((item) => ({ title: item.name, detail: "No verified redemption route found." })).concat([{ title: "Action", detail: "Nothing will be burned." }]),
     claims,
     actions: result.offers,
     unavailable: [],

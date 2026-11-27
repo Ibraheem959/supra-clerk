@@ -9,9 +9,9 @@ export function parseIntent(input) {
 }
 
 function venueLine(item) {
-  if (item.venue === "atmos") return { title: "Atmos", detail: "Not on this testnet. Nothing was swapped." };
-  if (item.venue === "dexlyn") return { title: "Dexlyn", detail: "The swap entry exists. No pool price came back, so nothing was traded." };
-  if (item.venue === "wars") return { title: "WARs", detail: "No published contract, so it was not quoted." };
+  if (item.venue === "atmos") return { title: "Atmos", detail: "The package is on mainnet, not this testnet. No quote was calculated and nothing was swapped." };
+  if (item.venue === "dexlyn") return { title: "Dexlyn", detail: "scripts::swap is public. It needs a signer, two numbers, and three types. Pool reserves are inside a table, so no quote was built." };
+  if (item.venue === "wars") return { title: "WARs", detail: "No package was found. Nothing was swapped." };
   return { title: item.venue || "Venue", detail: "No price came back." };
 }
 

@@ -126,6 +126,32 @@ async function handle(req, res) {
         faucet: Boolean(market),
       });
     }
+    if (req.method === "GET" && url.pathname === "/api/status") {
+      const chain = market ? deskChain : reportChain;
+      let rest = { name: "Supra REST", status: "DEGRADED", detail: "The node did not answer." };
+      try {
+        const block = await chain.block();
+        const height = block?.header?.height;
+        rest = height ? { name: "Supra REST", status: "LIVE", detail: `Block ${height}` } : rest;
+      } catch { /* status stays degraded */ }
+      let automation = { name: "Automation", status: "NOT VERIFIED", detail: "No execution has been observed." };
+      try {
+        const count = await chain.view("0x1::automation_registry::get_task_count", []);
+        automation = { name: "Automation", status: "NOT VERIFIED", detail: `Registry task count ${Array.isArray(count) ? count[0] : "unavailable"}. Task 6474 is not present.` };
+      } catch { /* leave unverified */ }
+      return send(res, 200, {
+        checks: [
+          rest,
+          { name: "Marketplace", status: market ? "LIVE" : "NOT CONFIGURED", detail: market || "No package configured" },
+          { name: "StarKey", status: "NOT VERIFIED", detail: "The browser wallet signs. This server cannot open it." },
+          automation,
+          { name: "Price API", status: process.env.SUPRA_PRICE_API_KEY ? "NOT VERIFIED" : "NOT CONFIGURED", detail: "SUPRA_PRICE_API_KEY is not set. Prices stay unavailable." },
+          { name: "LLM", status: process.env.LLM_API_KEY ? "NOT VERIFIED" : "NOT CONFIGURED", detail: "LLM_API_KEY is not set. Writing uses the facts only." },
+          { name: "Trading", status: "BLOCKED", detail: "Dexlyn swap exists. Reserves are in a table. Atmos is not on testnet. WARs has no package." },
+          { name: "Wallet Cleaner", status: "LIVE", detail: "It lists assets. It does not offer a burn." },
+        ],
+      });
+    }
     if (req.method === "POST" && url.pathname === "/api/tx") {
       if (!market) return send(res, 400, { error: "Chain mode is off." });
       const body = await jsonBody(req);

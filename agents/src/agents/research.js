@@ -6,14 +6,49 @@ export async function researchProject(chain, input) {
   const account = await chain.account(address);
   const modules = account ? await chain.modules(address) : [];
   const balance = await chain.supraBalance(address);
-  const names = modules.map((item) => (typeof item === "string" ? item : item.abi?.name || item.name)).filter(Boolean);
-  const summary = !account ? "Account not found" : names.length ? names.slice(0, 4).join(", ") : "No contracts published";
+  const names = [];
+  let entries = 0;
+  let views = 0;
+  let structs = 0;
+  const callable = [];
+  for (const item of modules) {
+    const abi = typeof item === "string" ? null : item.abi;
+    const name = typeof item === "string" ? item : abi?.name || item.name;
+    if (name) names.push(name);
+    for (const fn of abi?.exposed_functions || []) {
+      if (fn.is_entry) {
+        entries += 1;
+        if (callable.length < 8) callable.push(`${name}::${fn.name}`);
+      }
+      if (fn.is_view) views += 1;
+    }
+    structs += (abi?.structs || []).length;
+  }
+  const summary = !account ? "Account not found" : names.length ? `${names.length} modules, ${entries} entry functions` : "No contracts published";
   return {
     title: "Project",
     subject: address,
     summary,
     holdings: balance === null ? [] : [{ name: "SUPRA", amount: formatSupra(balance).replace(" SUPRA", "") }],
-    lines: names.slice(0, 8).map((name) => ({ title: name, detail: "Published on this account" })),
+    lines: [
+      ...names.slice(0, 6).map((name) => ({ title: name, detail: "Published module" })),
+      ...callable.slice(0, 6).map((name) => ({ title: name, detail: "Public entry. A user can call it. That does not say what it pays." })),
+    ],
+    findings: [
+      { kind: "ON-CHAIN FACT", title: "Modules", detail: String(names.length) },
+      { kind: "ON-CHAIN FACT", title: "Entry functions", detail: String(entries) },
+      { kind: "ON-CHAIN FACT", title: "View functions", detail: String(views) },
+      { kind: "OBSERVATION", title: "Structs", detail: String(structs) },
+    ],
+    evidence: {
+      network: String(chain.rpc || "").includes("testnet") ? "SupraMVM Testnet" : "Supra",
+      source: "Supra REST modules",
+      tools: ["account", "modules"],
+      pages: 1,
+      records: names.length,
+      complete: true,
+      confidence: account ? "VERIFIED" : "INSUFFICIENT DATA",
+    },
     claims: [
       {
         label: account ? "VERIFIED ON-CHAIN" : "DATA",
