@@ -146,7 +146,7 @@ async function handle(req, res) {
           { name: "StarKey", status: "NOT VERIFIED", detail: "The browser wallet signs. This server cannot open it." },
           automation,
           { name: "Price API", status: process.env.SUPRA_PRICE_API_KEY ? "NOT VERIFIED" : "NOT CONFIGURED", detail: "SUPRA_PRICE_API_KEY is not set. Prices stay unavailable." },
-          { name: "LLM", status: process.env.LLM_API_KEY ? "NOT VERIFIED" : "NOT CONFIGURED", detail: "LLM_API_KEY is not set. Writing uses the facts only." },
+          { name: "LLM", status: process.env.LLM_API_KEY ? "NOT VERIFIED" : "NOT CONFIGURED", detail: process.env.LLM_API_KEY ? `Key is set. Model ${process.env.LLM_MODEL || "gpt-4o-mini"}. A post is marked phrased only after a successful reply.` : "LLM_API_KEY is not set. Writing uses the facts only." },
           { name: "Trading", status: "BLOCKED", detail: "Dexlyn swap exists. Reserves are in a table. Atmos is not on testnet. WARs has no package." },
           { name: "Wallet Cleaner", status: "LIVE", detail: "It lists assets. It does not offer a burn." },
         ],

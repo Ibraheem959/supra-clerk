@@ -68,7 +68,7 @@ export async function writeAbout(chain, input, sender = "") {
     lines: [
       ...extra.map((line) => ({ title: "From the other reader", detail: line })),
       ...facts.slice(0, 4).map((line) => ({ title: "On-chain fact", detail: line })),
-      { title: "Writing", detail: spoken.writer === "model" ? "Phrased by the configured model. Every number was checked against the facts." : "Assembled from those facts. No model was called, and no price was added." },
+      { title: "Writing", detail: spoken.writer === "model" ? `Phrased by ${spoken.model}. Every number was checked against the facts.` : (spoken.reason || "Assembled from those facts. No model was called, and no price was added.") },
     ],
     holdings: found.holdings || [],
     history: found.history || [],
